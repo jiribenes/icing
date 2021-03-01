@@ -1,0 +1,110 @@
+textarea {
+    background-color: #000;
+    border: 1px solid #000;
+    color: #00ff00;
+    padding: 8px;
+    font-family: courier new;
+    overflow-y: scroll;
+    resize: none;
+}
+
+.main-container {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  padding: 5px;
+  width: 100%;
+  height: 100%;
+}
+
+.upper {
+  display: flex;
+  flex-direction: row;
+  justify-content: flex-end;
+  align-items: stretch;
+  width: 100%;
+}
+
+.editor {
+  display: inline-block;
+  width: 100%;
+  height: 650px;
+}
+
+.user-container {
+  background-color: #1e1e1e;
+  color: #d4d4d4;
+  width: 300px;
+  flex-grow: 1;
+}
+
+li {
+  font-weight: bold;
+}
+
+.wrapped-editor {
+  border: 1px solid black;
+  width: 90%;
+  flex-grow: 2;
+  height: 660px;
+}
+
+.my-terminal {
+  border: 1px solid black; 
+  height: 380px;
+  width: 100%;
+}
+
+.my-terminal-history {
+  height: 350px;
+  width: 100%;
+}
+
+.my-terminal-input {
+  width: 90%;
+}
+
+.monaco-remote-cursor {
+  position: absolute;
+  pointer-events: none;
+  z-index: 4000;
+  width: 2px;
+}
+
+.monaco-remote-cursor:before {
+  content: "";
+  width: 6px;
+  height: 5px;
+  display: block;
+  margin-left: -2px;
+  margin-top: 0;
+  z-index: 4000;
+  background: inherit;
+}
+
+.monaco-remote-cursor-tooltip {
+  position: absolute;
+  white-space: nowrap;
+  color: black;
+  /*text-shadow: 0 0 1px #000000;*/
+  opacity: 1.0;
+  font-size: 12px;
+  padding: 2px;
+  font-family: sans-serif;
+  z-index: 4000;
+
+  transition: opacity 0.5s ease-out;
+  -webkit-transition: opacity 0.5s ease-out;
+  -moz-transition: opacity 0.5s ease-out;
+  -ms-transition: opacity 0.5s ease-out;
+  -o-transition: opacity 0.5s ease-out;
+}
+
+.monaco-remote-selection {
+  position: absolute;
+  pointer-events: auto;
+  opacity: 0.3;
+  background: blue;
+}

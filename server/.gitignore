@@ -1,0 +1,59 @@
+### Haskell
+dist
+dist-*
+cabal-dev
+*.o
+*.hi
+*.chi
+*.chs.h
+*.dyn_o
+*.dyn_hi
+*.prof
+*.aux
+*.hp
+*.eventlog
+.virtualenv
+.hsenv
+.hpc
+.cabal-sandbox/
+cabal.sandbox.config
+cabal.config
+cabal.project.local
+.ghc.environment.*
+.HTF/
+
+# Stack
+.stack-work/
+
+# Nix
+result
+result-[0-9]
+
+# hie for stan and other tools
+.hie/
+
+### IDE/support
+# Vim
+[._]*.s[a-v][a-z]
+[._]*.sw[a-p]
+[._]s[a-v][a-z]
+[._]sw[a-p]
+*~
+tags
+
+# IntellijIDEA
+.idea/
+.ideaHaskellLib/
+*.iml
+
+# Atom
+.haskell-ghc-mod.json
+
+# Emacs
+*#
+.dir-locals.el
+TAGS
+
+# other
+.DS_Store
+.envrc

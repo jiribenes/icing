@@ -1,0 +1,59 @@
+cabal-version:       2.4
+name:                icing-server
+version:             0.0.0.0
+synopsis:            Backend for the Kasiopea programming contest
+description:         Backend for the Kasiopea programming contest
+homepage:            https://github.com/kasiopea-org/icing-server
+bug-reports:         https://github.com/kasiopea-org/icing-server/issues
+author:              Jiří Beneš
+maintainer:          Jiří Beneš <mail@jiribenes.com>
+copyright:           2020 Kasiopea
+build-type:          Simple
+extra-doc-files:     README.md
+tested-with:         GHC == 8.6.5
+                     GHC == 8.8.4
+                     GHC == 8.10.4
+
+source-repository head
+  type:                git
+  location:            https://github.com/kasiopea-org/icing-server.git
+
+common common-options
+  build-depends:       base >= 4.12.0.0 && < 5.0, deepseq, servant, servant-server, servant-websockets, transformers, aeson, wai, wai-logger, fast-logger, wai-cors, warp, text, time >= 1.9.1 && < 2.0, containers, bytestring, mtl, uuid-types, random, selda, selda-sqlite, selda-postgresql, selda-json, dhall >= 1.35.0, prettyprinter
+  
+  ghc-options:         -Wall
+                       -Wcompat
+                       -Widentities
+                       -Wincomplete-uni-patterns
+                       -Wincomplete-record-updates
+  if impl(ghc >= 8.0)
+    ghc-options:       -Wredundant-constraints
+  if impl(ghc >= 8.2)
+    ghc-options:       -fhide-source-paths
+  if impl(ghc >= 8.4)
+    ghc-options:       -Wmissing-export-lists
+                       -Wpartial-fields
+  if impl(ghc >= 8.8)
+    ghc-options:       -Wmissing-deriving-strategies
+                       -Werror=missing-deriving-strategies
+                       -fwrite-ide-info
+                       -hiedir=.hie
+  if impl(ghc >= 8.10)
+    ghc-options:       -Wunused-packages
+
+  default-language:    Haskell2010
+
+library
+  import:              common-options
+  build-depends:       entropy >= 0.4 && < 0.5, process, directory, base16-bytestring, base58-bytestring, optparse-applicative, memory, cryptonite >= 0.25 && < 1.0, email-validate, mime-mail, filepath, exceptions, http-types, http2, cookie, either, websockets, posix-pty
+  hs-source-dirs:      src
+  exposed-modules:     Icing, Icing.API, Icing.Message, Icing.Client, Icing.State, Icing.Prolog
+
+executable icing-server
+  import:              common-options
+  hs-source-dirs:      app
+  main-is:             Main.hs
+  build-depends:       icing-server
+  ghc-options:         -threaded
+                       -rtsopts
+                       "-with-rtsopts=-N2 -T -xn"
