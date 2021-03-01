@@ -1,1 +1,4 @@
 node_modules/
+dist/
+result
+result[0-9]

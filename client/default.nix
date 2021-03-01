@@ -22,7 +22,7 @@ let
     # installation = build our website into the provided output folder
     # - add any commands used for building here      
     installPhase = ''
-      yarn --offline build --dest $out
+      yarn --offline build -o $out
     '';
 
     # distribution = delete temporary .yarnrc file, do not change this

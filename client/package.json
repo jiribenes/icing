@@ -1,8 +1,9 @@
 {
 	"name": "icing-client",
+	"version": "0.0.1",
 	"scripts": {
 		"start": "webpack-cli serve --mode development",
-		"build": "node ./node_modules/webpack/bin/webpack.js --progress"
+		"build": "webpack-cli build"
 	},
 	"devDependencies": {
 		"@convergencelabs/monaco-collab-ext": "^0.3.1",
