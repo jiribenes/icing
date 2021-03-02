@@ -8,14 +8,25 @@ export const initProlog = () => {
 		indentationRules: indentationRules,
 		wordPattern: wordPattern,
 		onEnterRules: onEnterRules,
+    autoClosingPairs: [
+      { open: '(', close: ')' },
+      { open: '[', close: ']' }
+    ],
+    brackets: [
+      ['(', ')'],
+      ['[', ']']
+    ],
+    comments: {
+      lineComment: '%',
+      blockComment: ["/*", "*/"]
+    }
 	});
 
-	//monaco.languages.setMonarchTokensProvider('swi-prolog', {
-	//	//operators: operators,
-	//	//keywords: keywords,
-	//	//tokenizer: tokenizer,
-	//	brackets: brackets,
-	//});
+	monaco.languages.setMonarchTokensProvider('swi-prolog', {
+		//operators: operators,
+		//keywords: keywords,
+		tokenizer: tokenizer,
+	});
 
 	console.log("Prolog registered!");
 }
@@ -26,10 +37,6 @@ const indentationRules = {
 };
 
 const wordPattern = /(-?\d*\.\d\w*)|([^\`\~\!\@\#\%\^\&\*\(\)\-\=\+\[\{\]\}\\\|\;\:\'\"\,\.\<\>\/\?\s]+)/g;
-
-const brackets: monaco.languages.IMonarchLanguageBracket[] = [
-	{ open: ')', close: ')', token: 'parens' }
-];
 
 const onEnterRules = [
         // {
@@ -87,18 +94,21 @@ const keywords = [ 'not', 'fail' ];
 
 const operators = [
 		'.', ',', ':-', '\\+', '='
-	];
+];
 
-//const tokenizer = {
-//	root: [
-//		[/(?<![a-zA-Z0-9_])[a-z][a-zA-Z0-9_]*(?!\\s*\\(|[a-zA-Z0-9_])/, 'atom']
-//		//{ include: '@whitespace' },
-//		//[ /[a-zA-Z_][\w_]*('*)/, {
-//		//  cases: {
-//		//	  '@keywords': 'keyword',
-//		//	  '@default': 'identifier'
-//		//  } } ],
-//		//[ ':-', 'keyword' ]
-//	],
-//
-//};
+const tokenizer : any= {
+  root: [
+    { include: '@whitespace' },
+		[ /[A-Z][a-zA-Z_0-9]*/, 'constant'],
+    [ ':-', 'keyword' ],
+    [ ';', 'keyword' ],
+    [ ',', 'keyword' ],
+    [ /->/, 'keyword' ],
+    [ /\./, 'keyword' ],
+    [ /".*"/, { token: 'string', log: 'found string $0 in state $S0' } ]
+  ],
+
+  whitespace: [
+    [ /%.*$/, 'comment' ] 
+  ],
+};
