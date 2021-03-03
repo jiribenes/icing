@@ -9,6 +9,14 @@ import { Action, InsertAction, DeleteAction, Operation, StateSynchronized, State
 // this is horrifying
 var disableCallback = false;
 
+const debug = false;
+
+const logDebug = (x: any): void => {
+	if (debug) {
+		console.log(x);
+	}
+};
+
 
 const initEditor = () => {
 	initProlog();
@@ -119,7 +127,7 @@ const connect = (connection, address) => {
 	const message = {tag: 'ClientHello', contents: {helloName: connection.username}};
 
 	socket.addEventListener('open', function (event) {
-		console.log("opened!");
+		logDebug("opened!");
 		socket.send(JSON.stringify(message));
 
 		socket.addEventListener('close', function(event) {
@@ -130,13 +138,14 @@ const connect = (connection, address) => {
 
 	socket.addEventListener('message', function (event) {
 		const data = JSON.parse(event.data);
-		console.log('DEBUG: Message from server ', data);
+		logDebug('DEBUG: Message from server ');
+		logDebug(data);
 
 		connection.dispatcher.dispatch(data.tag, data.contents);
 	});
 
 	socket.addEventListener('close', function (event) {
-		console.log("ohno, close!");
+		logDebug("ohno, close!");
 	});
 
 	return socket;
@@ -167,11 +176,11 @@ class Connection {
 	}
 
 	_redrawUsers() {
-		console.log("redrawing!");
+		logDebug("redrawing!");
 		let userContainer : HTMLElement = document.getElementsByClassName('user-container')[0] as HTMLElement;
 		removeAllChildren(userContainer);
-		console.log(userContainer);
-		console.log(this.users);
+		logDebug(userContainer);
+		logDebug(this.users);
 		let unorderedList = document.createElement('ul');
 		this.users.forEach((client, username) => {
 			const item = document.createElement('li');
@@ -182,8 +191,8 @@ class Connection {
 		});
 		document.getElementsByClassName('user-container')[0].appendChild(unorderedList);
 		const userContainer2 : HTMLElement = document.getElementsByClassName('user-container')[0] as HTMLElement;
-		console.log(userContainer2);
-		console.log(this.users);
+		logDebug(userContainer2);
+		logDebug(this.users);
 	}
 
 	addClient(client: Client): void {
@@ -205,7 +214,7 @@ class Connection {
 	}
 
 	_sendJSON(json) {
-		console.log(JSON.stringify(json));
+		logDebug(JSON.stringify(json));
 		this.socket.send(JSON.stringify(json));
 	}
 
@@ -247,14 +256,14 @@ class Connection {
 	sendOpToServer(operation: Operation): void {
 		const serialized = operation.map(serializeAction);
 		const message = {tag: 'ClientSendChanges', contents: {changeRevision: this.revision, changeActions: serialized}};
-		console.log("sending to server!");
-		console.log(message);
+		logDebug("sending to server!");
+		logDebug(message);
 		this._sendJSON(message);
 	}
 
 	// server sent ACK to our changes, yay!
 	handleAck(contents): void {
-		console.log("ACK!");
+		logDebug("ACK!");
 		const revision: number = contents;
 		this.revision = revision;
 
@@ -268,17 +277,17 @@ class Connection {
 	}
 
 	handleOpFromServer(contents): void {
-		console.log("client state");
-		console.log(this.clientState);
-		console.log("handling op from server");
-		console.log(contents);
+		logDebug("client state");
+		logDebug(this.clientState);
+		logDebug("handling op from server");
+		logDebug(contents);
 		const revision = contents.changeRevision;
 		const list = contents.changeActions;
 		// list of actions
 		const operation : Operation = list.map(deserializeAction);
-		console.log(operation);
+		logDebug(operation);
 		const result = applyServerOperation(this.clientState, operation);
-		console.log(result);
+		logDebug(result);
 		this.clientState = result.clientState;
 		this.revision = revision;
 		const applyMe = result.needToApplyThisOperation;
@@ -346,7 +355,7 @@ const initCursorManager = (editor, conn) => {
 			}, 10 * 1000);
 		} else {
 			const user = conn.getClients().get(name);
-			if (!user) { console.log("uhoh cannot find " + name); }
+			if (!user) { logDebug("uhoh cannot find " + name); }
 
 			let actualCursor = remoteCursorManager.addCursor(name, user.colour, name);
 			actualCursor.setOffset(contents.setCursorOffset);
@@ -402,7 +411,7 @@ const initSelectionManager = (editor, conn) => {
 			}, 10 * 1000);
 		} else {
 			const user = conn.getClients().get(name);
-			if (!user) { console.log("uhoh cannot find " + name); }
+			if (!user) { logDebug("uhoh cannot find " + name); }
 
 			let actualSelection = remoteSelectionManager.addSelection(name, user.colour, name);
 			actualSelection.setOffsets(contents.setSelectionStart, contents.setSelectionEnd);
@@ -455,22 +464,22 @@ const initSharedData = (editor, conn) => {
 	});
 
 	conn.on('InternalApplyOperationFromServer', (actions) => {
-		console.log(actions);
+		logDebug(actions);
 		actions.forEach((action: Action) => {
 			switch (action.tag) {
 				case "insert": {
 					const myAction : InsertAction = action as InsertAction;
-					console.log("inserting from server!");
-					console.log(action);
-					console.log(myAction);
+					logDebug("inserting from server!");
+					logDebug(action);
+					logDebug(myAction);
 					contentManager.insert(myAction.position, myAction.text);
 					return;
 				}
 				case "delete": {
 					const myAction : DeleteAction = action as DeleteAction;
-					console.log("deleting from server!");
-					console.log(action);
-					console.log(myAction);
+					logDebug("deleting from server!");
+					logDebug(action);
+					logDebug(myAction);
 					contentManager.delete(myAction.position, myAction.len);
 					return;
 				}
@@ -485,13 +494,13 @@ const editor = initEditor();
 const username = initUsername();
 
 const dispatcher = new Dispatcher();
-const conn = new Connection('ws://localhost:8888/stream', dispatcher, username);
+const conn = new Connection('wss://icing.jiribenes.com/stream', dispatcher, username);
 const cursorManager = initCursorManager(editor, conn);
 const selectionManager = initSelectionManager(editor, conn);
 const contentManager = initSharedData(editor, conn);
 
 conn.on('RespondOlleh', (contents) => { 
-	console.log('RespondOlleh' + JSON.stringify(contents));
+	logDebug('RespondOlleh' + JSON.stringify(contents));
 
 	conn.revision = contents.ollehRevision;
 	disableCallback = true;
@@ -510,20 +519,20 @@ conn.on('RespondOlleh', (contents) => {
 });
 
 conn.on('BroadcastOlleh', (contents) => {
-	console.log("olleh");
-	console.log(contents);
-	console.log("");
+	logDebug("olleh");
+	logDebug(contents);
+	logDebug("");
 
 	const name = contents.ollehName;
 	const colour = contents.ollehColour;
 	const client = new Client(name, colour);
-	console.log("Adding client! " + name);
+	logDebug("Adding client! " + name);
 	conn.addClient(client);
 });
 
 conn.on('RespondUsers', (contents) => {
 	conn.users = new Map();
-	console.log(contents);
+	logDebug(contents);
 	const allUsers = contents.users;
 	contents.users.forEach((user) => {
 		const client = new Client(user.userName, user.userColour);
@@ -546,14 +555,14 @@ terminalSubmit.onclick = (event) => {
 }
 
 conn.on('BroadcastCompilerOutput', (contents) => {
-	console.log("compiler output!");
-	console.log(contents);
+	logDebug("compiler output!");
+	logDebug(contents);
 	terminalHistory.value += contents;
 	terminalHistory.scrollTop = terminalHistory.scrollHeight;
 });
 
 conn.on('BroadcastTerminal', (contents) => {
-	console.log("got terminal!");
+	logDebug("got terminal!");
 	terminalHistory.value += "~> " + contents;
 	terminalHistory.scrollTop = terminalHistory.scrollHeight;
 });
@@ -565,5 +574,5 @@ conn.on('SendAck', (contents) => { conn.handleAck(contents); });
 conn.on('BroadcastChanges', (contents) => { conn.handleOpFromServer(contents); });
 
 
-console.log(conn.username);
-console.log(conn.colour);
+logDebug(conn.username);
+logDebug(conn.colour);

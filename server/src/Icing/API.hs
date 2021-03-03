@@ -116,7 +116,7 @@ initializeConnection connection serverStateVar = do
             -- send the "user connected" message to all clients
             newState <- liftIO $ readMVar serverStateVar
             broadcastMessageExcept newState givenName $ BroadcastOlleh olleh
-            liftIO $ putStrLn $ "New state: " <> show newState
+            -- liftIO $ putStrLn $ "New state: " <> show newState
 
             -- send current text so that the user can catch up!
             let currentText = getCurrentText newState
@@ -138,9 +138,9 @@ loop connection serverStateVar name = do
   case errOrMsg of
     Left  err -> putStrLn $ "Error: " <> err
     Right msg -> do
-      print msg
-      serverState <- readMVar serverStateVar
-      print serverState
+      --print msg
+      --serverState <- readMVar serverStateVar
+      --print serverState
       replyMessages <- reply serverStateVar name msg
       --modifyMVar_ serverStateVar
       --  $ \st -> pure $ foldl' addChange st replyMessages
