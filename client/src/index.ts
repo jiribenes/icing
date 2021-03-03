@@ -4,6 +4,11 @@ import { Terminal } from 'xterm';
 import './index.css';
 import './xterm.css';
 import { initProlog } from './prolog.ts';
+import { Action, InsertAction, DeleteAction, Operation, StateSynchronized, StateWaiting, StateWaitingWithBuffer, State, ApplyLocalResult, applyUserOperation, ApplyServerResult, applyServerOperation, ServerAckResult, serverAck, serializeAction, deserializeAction} from './operation.ts';
+
+// this is horrifying
+var disableCallback = false;
+
 
 const initEditor = () => {
 	initProlog();
@@ -13,10 +18,15 @@ const initEditor = () => {
 		language: 'swi-prolog',
 		autoIndent: "full",
 		theme: "vs-dark",
-		automaticLayout: true
+		automaticLayout: true,
+		readOnly: true
 	});
 
 	return editor;
+};
+
+const makeEditorWritable = (editor) => {
+	editor.updateOptions({ readOnly: false });
 };
 
 const initUsername = () => {
@@ -97,6 +107,7 @@ class Client {
 	}
 }
 
+/** Removes all children of a given DOM node **/
 const removeAllChildren = (node) => {
 	while (node.firstChild) {
 		node.removeChild(node.firstChild);
@@ -136,6 +147,8 @@ class Connection {
 	username : string;
 	colour? : string;
 	dispatcher: Dispatcher;
+	revision: number;
+	clientState: State;
 	users: Map<string, Client>;
 
 	constructor(address, dispatcher, username) {
@@ -143,6 +156,8 @@ class Connection {
 		this.users = new Map();
 		this.colour = null;
 		this.username = username;
+		this.revision = 1;
+		this.clientState = { state: "synchronized" };
 
 		this.socket = connect(this, address);
 	}
@@ -194,19 +209,80 @@ class Connection {
 		this.socket.send(JSON.stringify(json));
 	}
 
-	sendInsert(index, text) {
-		const message = {tag: 'ClientInsert', contents: {insertIndex: index, insertValue: text}};
+	insertText(index, text) {
+		const action : InsertAction = {tag: "insert", position: index, text: text};
+		const result = applyUserOperation(this.clientState, [action]);
+		this.clientState = result.clientState;
+		if (result.shouldSendToServer) {
+			this.sendOpToServer([action]);
+			//const message = {tag: 'ClientInsert', contents: {insertIndex: index, insertValue: text}};
+			//this._sendJSON(message);
+		}
+	}
+
+	removeText(index, len) {
+		const action : DeleteAction = {tag: "delete", position: index, len: len};
+		const result = applyUserOperation(this.clientState, [action]);
+		this.clientState = result.clientState;
+		if (result.shouldSendToServer) {
+			this.sendOpToServer([action]);
+			//const message = {tag: 'ClientDelete', contents: {deleteIndex: index, deleteLength: len}};
+			//this._sendJSON(message);
+		}
+	}
+
+	replaceText(index, len, text) {
+		const deleteAction : DeleteAction = {tag: "delete", position: index, len: len};
+		const insertAction : InsertAction = {tag: "insert", position: index, text: text};
+		const actions : Action[] = [deleteAction, insertAction];
+		const result = applyUserOperation(this.clientState, actions);
+		this.clientState = result.clientState;
+		if (result.shouldSendToServer) {
+			this.sendOpToServer(actions);
+			//const message = {tag: 'ClientReplace', contents: {replaceIndex: index, replaceLength: len, replaceValue: text}};
+			//this._sendJSON(message);
+		}
+	}
+
+	sendOpToServer(operation: Operation): void {
+		const serialized = operation.map(serializeAction);
+		const message = {tag: 'ClientSendChanges', contents: {changeRevision: this.revision, changeActions: serialized}};
+		console.log("sending to server!");
+		console.log(message);
 		this._sendJSON(message);
 	}
 
-	sendRemove(index, len) {
-		const message = {tag: 'ClientDelete', contents: {deleteIndex: index, deleteLength: len}};
-		this._sendJSON(message);
+	// server sent ACK to our changes, yay!
+	handleAck(contents): void {
+		console.log("ACK!");
+		const revision: number = contents;
+		this.revision = revision;
+
+		const result = serverAck(this.clientState);
+		if (result !== null) {
+			this.clientState = result.clientState;
+			if (result.sendMeToServer !== null) {
+				this.sendOpToServer(result.sendMeToServer);
+			}
+		}
 	}
 
-	sendReplace(index, len, text) {
-		const message = {tag: 'ClientReplace', contents: {replaceIndex: index, replaceLength: len, replaceValue: text}};
-		this._sendJSON(message);
+	handleOpFromServer(contents): void {
+		console.log("client state");
+		console.log(this.clientState);
+		console.log("handling op from server");
+		console.log(contents);
+		const revision = contents.changeRevision;
+		const list = contents.changeActions;
+		// list of actions
+		const operation : Operation = list.map(deserializeAction);
+		console.log(operation);
+		const result = applyServerOperation(this.clientState, operation);
+		console.log(result);
+		this.clientState = result.clientState;
+		this.revision = revision;
+		const applyMe = result.needToApplyThisOperation;
+		this.dispatcher.dispatch("InternalApplyOperationFromServer", applyMe);
 	}
 
 	sendListUsers() {
@@ -361,19 +437,48 @@ const initSharedData = (editor, conn) => {
 	const contentManager = new EditorContentManager({
 	  editor: editor,
 	  onInsert: (index, text) => {
-		conn.sendInsert(index, text);
+		if (!disableCallback) {
+			conn.insertText(index, text);
+		}
 	  },
-	  onReplace: (index, length, text) => {
-		conn.sendReplace(index, length, text);
+	  onReplace: (index, len, text) => {
+		if (!disableCallback) {
+			conn.replaceText(index, len, text);
+		}
 	  },
-	  onDelete: (index, length) => {
-		conn.sendRemove(index, length);
+	  onDelete: (index, len) => {
+		if (!disableCallback) {
+			conn.removeText(index, len);
+		}
 	  },
 	  remoteSourceId: `convergence`
 	});
 
-	conn.on('BroadcastInsert', (contents) => { contentManager.insert(contents.insertIndex, contents.insertValue); });
-	conn.on('BroadcastDelete', (contents) => { contentManager.delete(contents.deleteIndex, contents.deleteLength); });
+	conn.on('InternalApplyOperationFromServer', (actions) => {
+		console.log(actions);
+		actions.forEach((action: Action) => {
+			switch (action.tag) {
+				case "insert": {
+					const myAction : InsertAction = action as InsertAction;
+					console.log("inserting from server!");
+					console.log(action);
+					console.log(myAction);
+					contentManager.insert(myAction.position, myAction.text);
+					return;
+				}
+				case "delete": {
+					const myAction : DeleteAction = action as DeleteAction;
+					console.log("deleting from server!");
+					console.log(action);
+					console.log(myAction);
+					contentManager.delete(myAction.position, myAction.len);
+					return;
+				}
+			}
+		});
+	});
+	// conn.on('BroadcastInsert', (contents) => { contentManager.insert(contents.insertIndex, contents.insertValue); });
+	// conn.on('BroadcastDelete', (contents) => { contentManager.delete(contents.deleteIndex, contents.deleteLength); });
 };
 
 const editor = initEditor();
@@ -388,11 +493,20 @@ const contentManager = initSharedData(editor, conn);
 conn.on('RespondOlleh', (contents) => { 
 	console.log('RespondOlleh' + JSON.stringify(contents));
 
-	conn.colour = contents.ollehColour; 
-	conn.username = contents.ollehName;
+	conn.revision = contents.ollehRevision;
+	disableCallback = true;
+	editor.getModel().setValue(contents.ollehCurrentText);
+	disableCallback = false;
+
+	conn.colour = contents.ollehMessage.ollehColour; 
+	conn.username = contents.ollehMessage.ollehName;
+
 	conn.addClient(new Client(conn.username, conn.colour));
 
 	conn.sendListUsers();
+
+	// we've caught up, let's open the edutor up!
+	makeEditorWritable(editor);
 });
 
 conn.on('BroadcastOlleh', (contents) => {
@@ -415,41 +529,6 @@ conn.on('RespondUsers', (contents) => {
 		const client = new Client(user.userName, user.userColour);
 		conn.addClient(client); // this is super inefficient!
 	});
-});
-
-conn.on('SendCurrentText', (contents) => {
-	console.log("current text update!");
-	console.log(contents);
-	editor.getModel().setValue(contents);
-});
-
-const commandId = editor.addCommand(0, () => { conn.sendRefreshText(); }, '');
-
-monaco.languages.registerCodeLensProvider('swi-prolog', {
-	provideCodeLenses: function (model, token) {
-		return {
-			lenses: [
-				{
-					range: {
-						startLineNumber: 1,
-						startColumn: 1,
-						endLineNumber: 2,
-						endColumn: 1
-					},
-					id: "Force refresh contents",
-					command: {
-						id: commandId,
-						title: "Force refresh contents"
-					}
-				}
-			],
-			dispose: () => {}
-		};
-	},
-	resolveCodeLens: function (model, codeLens, token) {
-		return codeLens;
-	}
-
 });
 
 const terminalInput : HTMLInputElement = document.getElementsByClassName("my-terminal-input")[0] as HTMLInputElement;
@@ -480,6 +559,10 @@ conn.on('BroadcastTerminal', (contents) => {
 });
 
 conn.on('BroadcastBye', (contents) => { conn.removeClient(contents.byeName); });
+
+// handle changes
+conn.on('SendAck', (contents) => { conn.handleAck(contents); });
+conn.on('BroadcastChanges', (contents) => { conn.handleOpFromServer(contents); });
 
 
 console.log(conn.username);

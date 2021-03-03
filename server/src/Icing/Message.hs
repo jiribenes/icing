@@ -10,8 +10,9 @@ import qualified Data.Text                     as T
 import           Data.Text                      ( Text )
 import qualified Data.Text.IO                  as T
 import           GHC.Generics
-import           Icing.Client
 import qualified Network.WebSockets            as WS
+
+import           Icing.Client
 
 data HelloMessage = HelloMessage
   { helloName :: Text
@@ -26,25 +27,51 @@ data OllehMessage = OllehMessage
   deriving stock (Show, Eq, Ord, Generic)
   deriving anyclass (FromJSON, ToJSON)
 
-data DeleteMessage = DeleteMessage
-  { deleteIndex  :: Int
-  , deleteLength :: Int
+data OllehUserMessage = OllehUserMessage
+  { ollehMessage :: OllehMessage
+  , ollehCurrentText :: Text
+  , ollehRevision :: Int
   }
   deriving stock (Show, Eq, Ord, Generic)
   deriving anyclass (FromJSON, ToJSON)
 
-data InsertMessage = InsertMessage
-  { insertIndex :: Int
-  , insertValue :: Text
+ --data DeleteMessage = DeleteMessage
+ --  { deleteIndex  :: Int
+ --  , deleteLength :: Int
+ --  }
+ --  deriving stock (Show, Eq, Ord, Generic)
+ --  deriving anyclass (FromJSON, ToJSON)
+ --
+ --data InsertMessage = InsertMessage
+ --  { insertIndex :: Int
+ --  , insertValue :: Text
+ --  }
+ --  deriving stock (Show, Eq, Ord, Generic)
+ --  deriving anyclass (FromJSON, ToJSON)
+ --
+ --data ReplaceMessage = ReplaceMessage
+ --  { replaceIndex  :: Int
+ --  , replaceLength :: Int
+ --  , replaceValue  :: Text
+ --  }
+ --  deriving stock (Show, Eq, Ord, Generic)
+ --  deriving anyclass (FromJSON, ToJSON)
+ 
+data InsertAction = InsertAction
+  { insertPosition :: Int
+  , insertText :: Text
   }
   deriving stock (Show, Eq, Ord, Generic)
   deriving anyclass (FromJSON, ToJSON)
 
-data ReplaceMessage = ReplaceMessage
-  { replaceIndex  :: Int
-  , replaceLength :: Int
-  , replaceValue  :: Text
+data DeleteAction = DeleteAction
+  { deletePosition :: Int
+  , deleteLen :: Int
   }
+  deriving stock (Show, Eq, Ord, Generic)
+  deriving anyclass (FromJSON, ToJSON)
+
+data SomeAction = ActionInsert InsertAction | ActionDelete DeleteAction
   deriving stock (Show, Eq, Ord, Generic)
   deriving anyclass (FromJSON, ToJSON)
 
@@ -103,10 +130,15 @@ data User = User
 
 clientToUser c = User (clientName c) (clientColour c)
 
+data ChangeMessage = ChangeMessage 
+  { changeRevision :: Int
+  , changeActions :: [SomeAction]
+  }
+  deriving stock (Show, Eq, Ord, Generic)
+  deriving anyclass (FromJSON, ToJSON)
+
 data ClientMessage = ClientHello HelloMessage
-                   | ClientInsert InsertMessage
-                   | ClientDelete DeleteMessage
-                   | ClientReplace ReplaceMessage
+                   | ClientSendChanges ChangeMessage
                    | ClientListUsers
                    | ClientSetCursor ClientSetCursorMessage
                    | ClientSetSelection ClientSetSelectionMessage
@@ -117,12 +149,12 @@ data ClientMessage = ClientHello HelloMessage
   deriving stock (Show, Eq, Ord, Generic)
   deriving anyclass (FromJSON, ToJSON)
 
-data ServerMessage = RespondOlleh OllehMessage
+data ServerMessage = RespondOlleh OllehUserMessage
                    | RespondUsers UsersMessage
                    | SendCurrentText Text
                    | BroadcastOlleh OllehMessage
-                   | BroadcastInsert InsertMessage
-                   | BroadcastDelete DeleteMessage
+                   | BroadcastChanges ChangeMessage
+                   | SendAck Int -- ^ ACK changes, send new revision no.
                    | BroadcastSetCursor SetCursorMessage
                    | BroadcastSetSelection SetSelectionMessage
                    | BroadcastClearSelection ClearSelectionMessage

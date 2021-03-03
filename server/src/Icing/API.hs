@@ -17,6 +17,7 @@ import           Control.Monad                  ( forever
                                                 )
 import           Control.Monad.IO.Class
 import           Data.Foldable
+import           Data.Functor
 import qualified Data.Text                     as T
 import           Data.Text                      ( Text )
 import qualified Data.Text.IO                  as T
@@ -76,7 +77,8 @@ disconnect serverStateVar name = liftIO $ do
   modifyMVar_ serverStateVar $ \st -> pure $ removeClient st name
   broadcastMessage state $ BroadcastBye (ByeMessage name)
 
-withExceptions serverStateVar connection name = handle $ handleCloseRequest serverStateVar connection name
+withExceptions serverStateVar connection name =
+  handle $ handleCloseRequest serverStateVar connection name
 
 initializeConnection
   :: MonadIO m => WS.Connection -> MVar State -> m (Maybe Text)
@@ -101,10 +103,13 @@ initializeConnection connection serverStateVar = do
             let givenName = createValidName state wantedName
 
             -- response
-            let olleh = OllehMessage givenName colour
+            let olleh     = OllehMessage givenName colour
+            let completeOlleh = OllehUserMessage olleh
+                                                 (getCurrentText state)
+                                                 (getCurrentRevision state)
 
             -- send the respond to the user and add them to clients
-            sendMessage connection (RespondOlleh olleh)
+            sendMessage connection (RespondOlleh completeOlleh)
             liftIO $ modifyMVar_ serverStateVar $ \st ->
               pure $ addClient st client
 
@@ -134,18 +139,21 @@ loop connection serverStateVar name = do
     Left  err -> putStrLn $ "Error: " <> err
     Right msg -> do
       print msg
-      serverState                  <- readMVar serverStateVar
-      (replyMessages, replyTarget) <- reply serverStateVar name msg
-      modifyMVar_ serverStateVar
-        $ \st -> pure $ foldl' addChange st replyMessages
+      serverState <- readMVar serverStateVar
+      print serverState
+      replyMessages <- reply serverStateVar name msg
+      --modifyMVar_ serverStateVar
+      --  $ \st -> pure $ foldl' addChange st replyMessages
       case replyMessages of
         [] -> do
           liftIO $ putStrLn $ "[???] Got :" <> show msg
           pure ()
-        [oneMessage] ->
+        [(oneMessage, replyTarget)] ->
           sendMessageTo connection serverStateVar oneMessage replyTarget
-        moreMessages ->
-          sendMessagesTo connection serverStateVar moreMessages replyTarget
+        moreMessages -> traverse_
+          (uncurry (sendMessageTo connection serverStateVar))
+          moreMessages
+          -- sendMessagesTo connection serverStateVar moreMessages replyTarget
 
 sendMessageTo connection serverStateVar oneMessage replyTarget = do
   serverState <- liftIO $ readMVar serverStateVar
@@ -168,42 +176,57 @@ reply
   => MVar State
   -> Text
   -> ClientMessage
-  -> m ([ServerMessage], MessageTarget)
+  -> m [(ServerMessage, MessageTarget)]
 reply serverStateVar name msg = do
   serverState <- liftIO $ readMVar serverStateVar
   case msg of
-    ClientInsert ins -> pure ([BroadcastInsert ins], ExceptThis name)
-    ClientDelete del -> pure ([BroadcastDelete del], ExceptThis name)
-    ClientReplace (ReplaceMessage i len val) -> do
-      let messages =
-            [ BroadcastDelete (DeleteMessage i len)
-            , BroadcastInsert (InsertMessage i val)
-            ]
-      pure (messages, ExceptThis name)
-    ClientSetCursor (ClientSetCursorMessage offset) -> pure
-      ([BroadcastSetCursor (SetCursorMessage offset name)], ExceptThis name)
-    ClientSetSelection (ClientSetSelectionMessage start end) -> pure
-      ( [BroadcastSetSelection (SetSelectionMessage start end name)]
-      , ExceptThis name
-      )
-    ClientClearSelection ->
+    -- ClientInsert ins -> pure ([BroadcastInsert ins], ExceptThis name)
+    -- ClientDelete del -> pure ([BroadcastDelete del], ExceptThis name)
+    -- ClientReplace (ReplaceMessage i len val) -> do
+    --   let messages =
+    --         [ BroadcastDelete (DeleteMessage i len)
+    --         , BroadcastInsert (InsertMessage i val)
+    --         ]
+    --   pure (messages, ExceptThis name)
+    ClientSendChanges (ChangeMessage clientRev actions) -> do
+      (sendMeToClients, newRevision) <-
+        liftIO $ modifyMVar serverStateVar $ \st ->
+          processActions' st clientRev actions
       pure
-        ( [BroadcastClearSelection (ClearSelectionMessage name)]
+        [ ( BroadcastChanges (ChangeMessage newRevision sendMeToClients)
+          , ExceptThis name
+          )
+        , (SendAck newRevision, OnlyThis name)
+        ]
+    ClientSetCursor (ClientSetCursorMessage offset) -> pure
+      [(BroadcastSetCursor (SetCursorMessage offset name), ExceptThis name)]
+    ClientSetSelection (ClientSetSelectionMessage start end) -> pure
+      [ ( BroadcastSetSelection (SetSelectionMessage start end name)
         , ExceptThis name
         )
+      ]
+    ClientClearSelection ->
+      pure
+        [ ( BroadcastClearSelection (ClearSelectionMessage name)
+          , ExceptThis name
+          )
+        ]
     ClientListUsers -> do
       let allUsers = clientToUser <$> getAllClients serverState
-      pure ([RespondUsers (UsersMessage allUsers)], OnlyThis name)
+      pure [(RespondUsers (UsersMessage allUsers), OnlyThis name)]
     ClientCurrentText -> do
       let currentText = getCurrentText serverState
-      pure ([SendCurrentText currentText], OnlyThis name)
+      pure [(SendCurrentText currentText, OnlyThis name)]
     ClientTerminal t -> do
       let currentText = getCurrentText serverState
       setPrologText currentText
 
       result <- runPrologWithCommand t
-      pure ([BroadcastTerminal t, BroadcastCompilerOutput result], Broadcast)
-    _ -> pure ([], None)
+      pure $ zip [BroadcastTerminal t, BroadcastCompilerOutput result]
+                 [Broadcast, Broadcast]
+    _ -> do
+      liftIO $ print msg
+      pure []
 
 
 server :: MonadSelda m => MVar State -> ServerT API m

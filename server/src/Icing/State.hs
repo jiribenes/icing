@@ -16,16 +16,18 @@ import           System.Random
 
 import           Icing.Client
 import           Icing.Message
+import           Icing.Operation
 
 data State = State
-  { stateClients     :: [Client]
-  , stateAllChanges  :: [ServerMessage]
-  , stateCurrentText :: Text
+  { stateClients        :: [Client]
+  , stateOperationState :: OperationState
   }
   deriving stock Show
 
 makeState :: MonadIO m => m (MVar State)
-makeState = liftIO $ newMVar (State [] [] "% write here")
+makeState = do
+  let initialOperationState = OperationState 1 "% write here" []
+  liftIO $ newMVar (State [] initialOperationState)
 
 addClient :: State -> Client -> State
 addClient st client = st { stateClients = client : oldClients }
@@ -36,28 +38,6 @@ removeClient st name = st
   { stateClients = filter (\c -> clientName c /= name) oldClients
   }
   where oldClients = stateClients st
-
-addChange :: State -> ServerMessage -> State
-addChange st change
-  | isChangeRelevant = st { stateAllChanges  = change : oldChanges
-                          , stateCurrentText = applyChange change oldText
-                          }
-  | otherwise = st
- where
-  oldChanges       = stateAllChanges st
-  oldText          = stateCurrentText st
-  isChangeRelevant = case change of
-    BroadcastInsert _ -> True
-    BroadcastDelete _ -> True
-    _                 -> False
-  applyChange (BroadcastInsert (InsertMessage i val)) text =
-    let (l, r) = T.splitAt i text in l <> val <> r
-  applyChange (BroadcastDelete (DeleteMessage i len)) text =
-    let (l, r) = T.splitAt i text in l <> T.drop len r
-  applyChange _ text = text
-
-getAllChanges :: State -> [ServerMessage]
-getAllChanges = reverse . stateAllChanges
 
 getClientByName :: State -> Text -> Maybe Client
 getClientByName state name =
@@ -70,11 +50,39 @@ getAllClientsExcept state name =
 getAllClients :: State -> [Client]
 getAllClients = stateClients
 
-getCurrentText :: State -> Text
-getCurrentText = stateCurrentText
-
 usedNames :: State -> Set Text
 usedNames state = Set.fromList $ clientName <$> stateClients state
+
+processActions
+  :: State -> Revision -> [SomeAction] -> Either String ([SomeAction], State)
+processActions state revision actions = do
+  let operation = someActionToAction <$> actions
+  (op', operationState') <- applyOperation (stateOperationState state)
+                                           revision
+                                           operation
+  let actions' = actionToSomeAction <$> op'
+  let state'   = state { stateOperationState = operationState' }
+  pure (actions', state')
+
+processActions'
+  :: MonadIO m
+  => State
+  -> Revision
+  -> [SomeAction]
+  -> m (State, ([SomeAction], Revision))
+processActions' st rev actions = case processActions st rev actions of
+  Left err -> do
+    liftIO $ putStrLn "error happened while processing action:"
+    liftIO $ putStrLn err
+    pure (st, ([], serverRev $ stateOperationState st))
+  Right (actions', st') ->
+    pure (st', (actions', serverRev $ stateOperationState st'))
+
+getCurrentText :: State -> Text
+getCurrentText = serverDoc . stateOperationState
+
+getCurrentRevision :: State -> Revision
+getCurrentRevision = serverRev . stateOperationState
 
 createValidName :: State -> Text -> Text
 createValidName st wantedUsername
@@ -102,3 +110,14 @@ tryPickColour state
     randomIndex <- liftIO $ getStdRandom (randomR (0, length free - 1))
     pure $ Just (free !! randomIndex)
   where free = Set.toList $ freeColours state
+
+
+someActionToAction :: SomeAction -> Action
+someActionToAction (ActionInsert ins) =
+  Insert (insertPosition ins) (insertText ins)
+someActionToAction (ActionDelete del) =
+  Delete (deletePosition del) (deleteLen del)
+
+actionToSomeAction :: Action -> SomeAction
+actionToSomeAction (Insert i t) = ActionInsert $ InsertAction i t
+actionToSomeAction (Delete i l) = ActionDelete $ DeleteAction i l
