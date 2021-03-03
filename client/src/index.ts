@@ -30,6 +30,10 @@ const initEditor = () => {
 		readOnly: true
 	});
 
+	editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KEY_Z, () => {
+		// lol, no Ctrl+Z for you!
+	});
+
 	return editor;
 };
 
