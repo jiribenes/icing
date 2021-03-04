@@ -47,8 +47,6 @@ instance ToJSON Client where
     object ["clientName" .= clientName c, "clientColour" .= clientColour c]
 
 -- | A custom dark pallete for connections. 
---
--- TODO: if overflow, generate a random Colour
 darkPallete :: Set Colour
 darkPallete = Set.fromList
   [ "#e31a1c" -- red
