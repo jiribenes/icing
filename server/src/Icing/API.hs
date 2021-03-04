@@ -29,11 +29,38 @@ import           Servant.API.WebSocket          ( WebSocketPending )
 import           Servant.Server                 ( HasServer(..) )
 
 import           Icing.Client                   ( Client(..) )
-import           Icing.Message
+import           Icing.Message                  ( ByeMessage(..)
+                                                , ChangeMessage(..)
+                                                , ClearSelectionMessage(..)
+                                                , ClientMessage(..)
+                                                , ClientSetCursorMessage(..)
+                                                , ClientSetSelectionMessage(..)
+                                                , HelloMessage(..)
+                                                , MessageTarget(..)
+                                                , OllehMessage(..)
+                                                , OllehUserMessage(..)
+                                                , ServerMessage(..)
+                                                , SetCursorMessage(..)
+                                                , SetSelectionMessage(..)
+                                                , UsersMessage(..)
+                                                , clientToUser
+                                                , parseMessage
+                                                , sendMessage
+                                                )
 import           Icing.Prolog                   ( runPrologWithQuery
                                                 , setPrologText
                                                 )
-import           Icing.State
+import           Icing.State                    ( State
+                                                , addClient
+                                                , createValidName
+                                                , getAllClients
+                                                , getAllClientsExcept
+                                                , getCurrentRevision
+                                                , getCurrentText
+                                                , processActions'
+                                                , removeClient
+                                                , tryPickColour
+                                                )
 
 -- | The whole API is just @/stream@ which serves WebSockets.
 -- Yes, it's THAT simple!
