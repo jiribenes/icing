@@ -5,20 +5,26 @@
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DeriveAnyClass #-}
 
+module Icing.Client
+  ( Colour
+  , Client(..)
+  , darkPallete
+  ) where
 
-module Icing.Client where
-
-import           Data.Aeson
+import           Data.Aeson                     ( KeyValue((.=))
+                                                , ToJSON(..)
+                                                , object
+                                                )
 import qualified Data.Set                      as Set
 import           Data.Set                       ( Set )
-import           Data.String
-import qualified Data.Text                     as T
 import           Data.Text                      ( Text )
-import           GHC.Generics
-import           Network.WebSockets
+import           GHC.Generics                   ( Generic )
+import           Network.WebSockets             ( Connection )
 
+-- | Represents a HEX colour
 type Colour = Text
 
+-- | Represents a single client
 data Client = Client
   { clientName       :: Text
   , clientColour     :: Colour
@@ -26,6 +32,7 @@ data Client = Client
   }
   deriving stock Generic
 
+-- | Does not print the connection details.
 instance Show Client where
   show c =
     "Client { name = "
@@ -34,10 +41,14 @@ instance Show Client where
       <> show (clientColour c)
       <> " }"
 
+-- | Does not serialize connection, that would make no sense!
 instance ToJSON Client where
   toJSON c =
     object ["clientName" .= clientName c, "clientColour" .= clientColour c]
 
+-- | A custom dark pallete for connections. 
+--
+-- TODO: if overflow, generate a random Colour
 darkPallete :: Set Colour
 darkPallete = Set.fromList
   [ "#e31a1c" -- red
@@ -55,4 +66,3 @@ darkPallete = Set.fromList
   , "#d8973c" -- dark orange ish
   ]
 
--- TODO: if overflow, generateRandomColor 

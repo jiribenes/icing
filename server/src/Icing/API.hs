@@ -10,82 +10,74 @@ module Icing.API
   , State
   ) where
 
-import           Control.Concurrent
-import           Control.Exception              ( handle )
-import           Control.Monad                  ( forever
-                                                , unless
+import           Control.Concurrent             ( MVar
+                                                , modifyMVar
+                                                , modifyMVar_
+                                                , readMVar
                                                 )
-import           Control.Monad.IO.Class
-import           Data.Foldable
-import           Data.Functor
-import qualified Data.Text                     as T
+import           Control.Exception              ( handle )
+import           Control.Monad                  ( forever )
+import           Control.Monad.IO.Class         ( MonadIO(..) )
+import           Data.Foldable                  ( for_
+                                                , traverse_
+                                                )
 import           Data.Text                      ( Text )
-import qualified Data.Text.IO                  as T
-import           Database.Selda
+import           Database.Selda                 ( MonadSelda )
 import qualified Network.WebSockets            as WS
-import           Servant.API
-import           Servant.API.WebSocket
-import           Servant.Server
+import           Servant.API                    ( type (:>) )
+import           Servant.API.WebSocket          ( WebSocketPending )
+import           Servant.Server                 ( HasServer(..) )
 
-import           Icing.Client
+import           Icing.Client                   ( Client(..) )
 import           Icing.Message
-import           Icing.Prolog
+import           Icing.Prolog                   ( runPrologWithQuery
+                                                , setPrologText
+                                                )
 import           Icing.State
 
+-- | The whole API is just @/stream@ which serves WebSockets.
+-- Yes, it's THAT simple!
 type API = "stream" :> WebSocketPending
 
+-- | Broadcasts a 'ServerMessage' to every client
 broadcastMessage :: MonadIO m => State -> ServerMessage -> m ()
 broadcastMessage clients message = liftIO $ do
-  putStrLn $ "broadcasting message: " <> show message
   for_ (getAllClients clients)
     $ \client -> sendMessage (clientConnection client) message
 
-broadcastMessages :: MonadIO m => State -> [ServerMessage] -> m ()
-broadcastMessages clients messages = liftIO $ do
-  putStrLn $ "broadcasting messages: " <> show messages
-  for_ (getAllClients clients)
-    $ \client -> sendMessages (clientConnection client) messages
-
+-- | Broadcasts a 'ServerMessage' to every client except the given one
 broadcastMessageExcept :: MonadIO m => State -> Text -> ServerMessage -> m ()
 broadcastMessageExcept clients exceptName message = liftIO $ do
   putStrLn $ "broadcasting message: " <> show message
   for_ (getAllClientsExcept clients exceptName)
     $ \client -> sendMessage (clientConnection client) message
 
-broadcastMessagesExcept
-  :: MonadIO m => State -> Text -> [ServerMessage] -> m ()
-broadcastMessagesExcept clients exceptName messages = liftIO $ do
-  putStrLn $ "broadcasting messages: " <> show messages
-  for_ (getAllClientsExcept clients exceptName)
-    $ \client -> sendMessages (clientConnection client) messages
-
--- TODO: Catch 'CloseRequest' exception!
-handleCloseRequest serverStateVar _ name (WS.CloseRequest i closeMsg) = do
-  putStrLn "Closing!"
-  putStrLn $ show i
-  putStrLn $ show closeMsg
-  disconnect serverStateVar name
-  pure ()
-handleCloseRequest serverStateVar _ name exc = do
-  putStrLn "Some exception!"
-  liftIO $ print exc
-  disconnect serverStateVar name
-  pure ()
-
+-- | Disconnects the given user
+disconnect :: MonadIO m => MVar State -> Text -> m ()
 disconnect serverStateVar name = liftIO $ do
   state <- readMVar serverStateVar
   modifyMVar_ serverStateVar $ \st -> pure $ removeClient st name
   broadcastMessage state $ BroadcastBye (ByeMessage name)
 
-withExceptions serverStateVar connection name =
-  handle $ handleCloseRequest serverStateVar connection name
+-- | Runs a computation, catches all relevant exceptions gracefully.
+withExceptions :: MVar State -> Text -> IO () -> IO ()
+withExceptions serverStateVar name = handle handleCloseRequest
+ where
+  handleCloseRequest :: MonadIO m => WS.ConnectionException -> m ()
+  handleCloseRequest (WS.CloseRequest _i _closeMsg) = do
+    liftIO $ putStrLn "Closing!"
+    disconnect serverStateVar name
+    pure ()
+  handleCloseRequest exc = do
+    liftIO $ putStrLn "Some exception happened!"
+    liftIO $ print exc
+    disconnect serverStateVar name
+    pure ()
 
+-- | Attempts to intiialize a connection, returns a nickname if everything went well.
 initializeConnection
   :: MonadIO m => WS.Connection -> MVar State -> m (Maybe Text)
 initializeConnection connection serverStateVar = do
-  clients <- liftIO $ readMVar serverStateVar
-  liftIO $ putStrLn $ "New connection!: Clients so far: " <> show clients
-
   errOrFirstMsg <- parseMessage connection
   case errOrFirstMsg of
     Left err -> do
@@ -132,18 +124,16 @@ initializeConnection connection serverStateVar = do
         liftIO $ putStrLn "Closing because: expected hello!"
         pure Nothing
 
+-- | This takes care of the ordinary "get message, respond to it" loop
+loop :: WS.Connection -> MVar State -> Text -> IO ()
 loop connection serverStateVar name = do
   liftIO $ putStrLn "loop"
   errOrMsg <- parseMessage connection
   case errOrMsg of
     Left  err -> putStrLn $ "Error: " <> err
     Right msg -> do
-      --print msg
-      --serverState <- readMVar serverStateVar
-      --print serverState
       replyMessages <- reply serverStateVar name msg
-      --modifyMVar_ serverStateVar
-      --  $ \st -> pure $ foldl' addChange st replyMessages
+
       case replyMessages of
         [] -> do
           liftIO $ putStrLn $ "[???] Got :" <> show msg
@@ -153,24 +143,26 @@ loop connection serverStateVar name = do
         moreMessages -> traverse_
           (uncurry (sendMessageTo connection serverStateVar))
           moreMessages
-          -- sendMessagesTo connection serverStateVar moreMessages replyTarget
 
+-- | A helpful wrapper which dispatches a 'ServerMessage' with a 'MessageTarget' to a proper sendX funtion
+sendMessageTo
+  :: MonadIO m
+  => WS.Connection
+  -> MVar State
+  -> ServerMessage
+  -> MessageTarget
+  -> m ()
 sendMessageTo connection serverStateVar oneMessage replyTarget = do
   serverState <- liftIO $ readMVar serverStateVar
   case replyTarget of
     OnlyThis   _    -> sendMessage connection oneMessage
     ExceptThis name -> broadcastMessageExcept serverState name oneMessage
     Broadcast       -> broadcastMessage serverState oneMessage
-    None            -> pure ()
 
-sendMessagesTo connection serverStateVar moreMessages replyTarget = do
-  serverState <- liftIO $ readMVar serverStateVar
-  case replyTarget of
-    OnlyThis   _    -> sendMessages connection moreMessages
-    ExceptThis name -> broadcastMessagesExcept serverState name moreMessages
-    Broadcast       -> broadcastMessages serverState moreMessages
-    None            -> pure ()
 
+-- | Replies to a given 'ClientMessage'.
+-- 
+-- Beware, one 'ClientMessage' may result in more than one 'ServerMessage' as a response!
 reply
   :: MonadIO m
   => MVar State
@@ -180,14 +172,6 @@ reply
 reply serverStateVar name msg = do
   serverState <- liftIO $ readMVar serverStateVar
   case msg of
-    -- ClientInsert ins -> pure ([BroadcastInsert ins], ExceptThis name)
-    -- ClientDelete del -> pure ([BroadcastDelete del], ExceptThis name)
-    -- ClientReplace (ReplaceMessage i len val) -> do
-    --   let messages =
-    --         [ BroadcastDelete (DeleteMessage i len)
-    --         , BroadcastInsert (InsertMessage i val)
-    --         ]
-    --   pure (messages, ExceptThis name)
     ClientSendChanges (ChangeMessage clientRev actions) -> do
       (sendMeToClients, newRevision) <-
         liftIO $ modifyMVar serverStateVar $ \st ->
@@ -196,7 +180,7 @@ reply serverStateVar name msg = do
         [ ( BroadcastChanges (ChangeMessage newRevision sendMeToClients)
           , ExceptThis name
           )
-        , (SendAck newRevision, OnlyThis name)
+        , (RespondAck newRevision, OnlyThis name)
         ]
     ClientSetCursor (ClientSetCursorMessage offset) -> pure
       [(BroadcastSetCursor (SetCursorMessage offset name), ExceptThis name)]
@@ -214,21 +198,18 @@ reply serverStateVar name msg = do
     ClientListUsers -> do
       let allUsers = clientToUser <$> getAllClients serverState
       pure [(RespondUsers (UsersMessage allUsers), OnlyThis name)]
-    ClientCurrentText -> do
-      let currentText = getCurrentText serverState
-      pure [(SendCurrentText currentText, OnlyThis name)]
-    ClientTerminal t -> do
+    ClientTerminal queryText -> do
       let currentText = getCurrentText serverState
       setPrologText currentText
 
-      result <- runPrologWithCommand t
-      pure $ zip [BroadcastTerminal t, BroadcastCompilerOutput result]
+      result <- runPrologWithQuery queryText
+      pure $ zip [BroadcastTerminal queryText, BroadcastCompilerOutput result]
                  [Broadcast, Broadcast]
     _ -> do
       liftIO $ print msg
       pure []
 
-
+-- | Serves a small server given by the type of 'API'.
 server :: MonadSelda m => MVar State -> ServerT API m
 server serverStateVar = streamData
  where
@@ -240,7 +221,7 @@ server serverStateVar = streamData
     case maybeClientName of
       Just name -> do
         liftIO
-          $ withExceptions serverStateVar connection name
+          $ withExceptions serverStateVar name
           $ WS.withPingThread connection 10 (pure ())
           $ forever
           $ loop connection serverStateVar name

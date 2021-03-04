@@ -517,7 +517,7 @@ conn.on('BroadcastTerminal', (contents) => {
 conn.on('BroadcastBye', (contents) => { conn.removeClient(contents.byeName); });
 
 // handle changes
-conn.on('SendAck', (contents) => { conn.handleAck(contents); });
+conn.on('RespondAck', (contents) => { conn.handleAck(contents); });
 conn.on('BroadcastChanges', (contents) => { conn.handleOpFromServer(contents); });
 
 

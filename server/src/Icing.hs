@@ -5,7 +5,6 @@ module Icing
   ) where
 
 import           Control.Concurrent
-import           Control.Monad.Except           ( runExceptT )
 import           Data.Proxy
 import           Database.Selda
 import           Database.Selda.SQLite          ( SQLite
@@ -17,18 +16,26 @@ import           Icing.State                    ( State
                                                 )
 import           Servant                        ( Application
                                                 , Server
-                                                , ServerError
                                                 , hoistServer
                                                 , serve
                                                 )
 
+-- | Runs a computation with a SQLite database
+--
+-- Note: This is not used as of writing this comment.
+-- Might be useful for the future, though!
 withDb :: (MonadIO m, MonadMask m) => SeldaT SQLite m a -> m a
 withDb action = withSQLite "db.sqlite" action
 
+-- | Hoists the server so that it can use the database
 hoisted :: MVar State -> Server API
 hoisted var = hoistServer (Proxy @API) withDb $ server var
 
+-- | Entry point to the server itself
 app :: IO Application
 app = do
+  -- prepare the state variable
   stateVar <- makeState
+
+  -- server just serves the api via 'hoisted'
   pure $ serve (Proxy @API) $ hoisted stateVar

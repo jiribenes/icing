@@ -8,48 +8,32 @@ module Icing.Operation
   , applyAction
   , transformAction
   , Revision
-  , OperationState(..)
+  , DocumentState(..)
   , applyOperation
-    -- * for testing purposes
-  , testState
-  , process
-  , testDoc
-  , one
-  , two
-  , oneDoc
-  , twoDoc
   ) where
 
-import           Control.Monad
-import           Control.Monad.Except
-import           Control.Monad.Trans.Except
-import           Data.Foldable
+import           Control.Monad.Except           ( runExcept
+                                                , throwError
+                                                )
+import           Data.Foldable                  ( foldl' )
 import           Data.Text                      ( Text )
 import qualified Data.Text                     as T
 import           Data.Tuple                     ( swap )
 
+-- | Action either inserts or deletes!
 data Action = Insert Int Text
             | Delete Int Int
   deriving stock (Show, Eq, Ord)
 
 type Operation = [Action]
 
+-- | Applies an action to a given Text document
+--
 --  TODO: do a bounds check
 applyAction :: Action -> Text -> Text
 applyAction action doc = case action of
   Insert i t -> let (start, end) = T.splitAt i doc in start <> t <> end
   Delete i l -> let (start, end) = T.splitAt i doc in start <> T.drop l end
-
-shiftIndexBy :: Action -> Int -> Action
-shiftIndexBy (Insert i t) j = Insert (i + j) t
-shiftIndexBy (Delete i l) j = Delete (i + j) l
-
-getIndex :: Action -> Int
-getIndex (Insert i _) = i
-getIndex (Delete i _) = i
-
-todo :: a
-todo = error "todo"
 
 -- Takes actions @a@, @b@.
 -- If we denote the transformation as @f@, satisfies @f b \circ a === f a \circ b@ 
@@ -57,10 +41,9 @@ todo = error "todo"
 -- Most of the operations are from [reduce98]
 transformAction :: Action -> Action -> ([Action], [Action])
 transformAction a b = case (a, b) of
-  (Insert i ta, Insert j tb) -> case compare i j of
-    LT -> ([Insert i ta], [Insert (j + T.length ta) tb])
-    EQ -> ([Insert i ta], [Insert (j + T.length ta) tb])
-    GT -> ([Insert (i + T.length tb) ta], [Insert j tb])
+  (Insert i ta, Insert j tb)
+    | i <= j    -> ([Insert i ta], [Insert (j + T.length ta) tb])
+    | otherwise -> ([Insert (i + T.length tb) ta], [Insert j tb])
   (Insert i ta, Delete j lb)
     | i <= j
     -> ([Insert i ta], [Delete (j + T.length ta) lb])
@@ -81,108 +64,61 @@ transformAction a b = case (a, b) of
                | j > i && (j + lb) >= (i + la)  = Delete i (j - i)
                | otherwise                      = Delete i (la - lb)
 
-
-
+-- | Equivalent of 'transformAction' for an 'Operation'
 transformOperation :: Operation -> Operation -> (Operation, Operation)
-transformOperation xs ys = help $ go xs ys
+transformOperation xs ys = unwrap $ go xs ys
  where
+  -- TODO: This function probably is in base, but I can't seem to find it...
   go :: [Action] -> [Action] -> [([Action], [Action])]
   go []       []       = [([], [])]
   go as       []       = [(as, [])]
   go []       bs       = [([], bs)]
   go (a : as) (b : bs) = transformAction a b : go as bs
 
-  help :: [([a], [b])] -> ([a], [b])
-  help zs = (zs >>= fst, zs >>= snd)
+  -- TODO: This function seems kinda inefficient...
+  unwrap :: [([a], [b])] -> ([a], [b])
+  unwrap zs = (zs >>= fst, zs >>= snd)
 
+-- That ought to be enough revisions for everybody!
 type Revision = Int
 
-data OperationState = OperationState
-  { serverRev :: Revision
-  , serverDoc :: Text
-  , serverOps :: [Operation]
+-- | Represents a given state of a document
+data DocumentState = DocumentState
+  { docRevision :: Revision
+  , docText     :: Text
+  , docOps      :: [Operation]
   }
   deriving stock (Eq, Show, Ord)
 
-type ServerOpState = (Int, Text, [Operation])
-
-testState :: ServerOpState
-testState = (1, "ahojky", [])
-
-runError :: Except e a -> Either e a
-runError = runExcept
-
+-- | Takes a document and a pair (clientRevision, clientOperation)
+-- and applies the operation (or dies trying).
+--
+-- Returns a new operation that should be sent to all other clients
+-- except the one who sent the processed message.
 applyOperation
-  :: OperationState
+  :: DocumentState
   -> Revision -- ^ last revision that the client saw
   -> Operation -- ^ operation recieved from client
-  -> Either String (Operation, OperationState)
-applyOperation operationState clientRev clientOp = runError $ do
-  let numberOfRevs = serverRev operationState - clientRev
+  -> Either String (Operation, DocumentState)
+applyOperation operationState clientRev clientOp = runExcept $ do
+  let numberOfRevs = docRevision operationState - clientRev
   concurrentOps :: [Operation] <-
-    if clientRev > serverRev operationState || numberOfRevs > length
-         (serverOps operationState)
+    if clientRev > docRevision operationState || numberOfRevs > length
+         (docOps operationState)
       then throwError "Invalid revision number!"
-      else pure $ take numberOfRevs (serverOps operationState)
+      else pure $ take numberOfRevs (docOps operationState)
+
   let megaOp :: Operation = concat $ reverse concurrentOps
   let op'                 = fst $ transformOperation clientOp megaOp
-  let serverDoc'          = applyAllActions (serverDoc operationState) op'
-  let operationState' = OperationState
-        { serverRev = serverRev operationState + 1
-        , serverDoc = serverDoc'
-        , serverOps = op' : serverOps operationState
+  let docText'            = applyAllActions (docText operationState) op'
+
+  let operationState' = DocumentState
+        { docRevision = docRevision operationState + 1
+        , docText     = docText'
+        , docOps      = op' : docOps operationState
         }
   pure (op', operationState')
 
--- testing data:
---
-testDoc :: Text
-testDoc = "ahojky"
-
-one :: Action
-one = Insert 2 "aaa"
-
-two :: Action
-two = Insert 2 "bbb"
-
-oneDoc = applyAction one testDoc
-twoDoc = applyAction two testDoc
-
+-- | Applies all [Action]s into a document
 applyAllActions :: Text -> [Action] -> Text
 applyAllActions = foldl' (flip applyAction)
-
-process :: Action -> Action -> Text -> IO ()
-process a b doc = do
-  putStrLn "initial document:"
-  print doc
-  putStrLn ""
-  putStrLn "Action a:"
-  print a
-  putStrLn ""
-  putStrLn "a's document:"
-  print aDoc
-  putStrLn ""
-  putStrLn "Action b:"
-  print b
-  putStrLn ""
-  putStrLn "b's document:"
-  print bDoc
-  putStrLn ""
-  putStrLn "------------------"
-  putStrLn "b's changes for a:"
-  print b'
-  putStrLn ""
-  putStrLn "a's final document:"
-  print $ applyAllActions aDoc b'
-  putStrLn ""
-  putStrLn "a's changes for b:"
-  print a'
-  putStrLn ""
-  putStrLn "b's final document:"
-  print $ applyAllActions bDoc a'
-  putStrLn ""
- where
-  (a', b') = transformAction a b
-  aDoc     = applyAction a doc
-  bDoc     = applyAction b doc
-
