@@ -5,34 +5,10 @@
         "homepage": "https://github.com/NixOS/nixpkgs",
         "owner": "NixOS",
         "repo": "nixpkgs",
-        "rev": "ff96a0fa5635770390b184ae74debea75c3fd534",
-        "sha256": "0dc612yhbcn2cc4rmnrhbkmpiyzg0ldkd8g2r7x7011bc9q3kc6y",
+        "rev": "0aeba64fb26e4defa0842a942757144659c6e29f",
+        "sha256": "08qd78dm29xmawc32m83mvhjp4j9k3bj4pjgms2yj8185b82574i",
         "type": "tarball",
-        "url": "https://github.com/NixOS/nixpkgs/archive/ff96a0fa5635770390b184ae74debea75c3fd534.tar.gz",
-        "url_template": "https://github.com/<owner>/<repo>/archive/<rev>.tar.gz"
-    },
-    "pre-commit-hooks": {
-        "branch": "master",
-        "description": "Seamless integration of https://pre-commit.com git hooks with Nix.",
-        "homepage": "",
-        "owner": "jiribenes",
-        "repo": "pre-commit-hooks.nix",
-        "rev": "83beb499837fe6ab9ebd6e8e03e36ea8e3ce590c",
-        "sha256": "0jlw25138ap39m2rdsdzvimphknbav58q514yl917am097sy0ax7",
-        "type": "tarball",
-        "url": "https://github.com/jiribenes/pre-commit-hooks.nix/archive/83beb499837fe6ab9ebd6e8e03e36ea8e3ce590c.tar.gz",
-        "url_template": "https://github.com/<owner>/<repo>/archive/<rev>.tar.gz"
-    },
-    "servant-prometheus": {
-        "branch": "master",
-        "description": "Automatically produce per-endpoint monitoring for servant apps",
-        "homepage": "",
-        "owner": "jiribenes",
-        "repo": "servant-prometheus",
-        "rev": "def64f3d9ab8e83467a53629acaa3e2fa58c6112",
-        "sha256": "037z9kddq8v9rcgyvja4i4yfnvvr0mih4yjg1zqxkja5k5hiix27",
-        "type": "tarball",
-        "url": "https://github.com/jiribenes/servant-prometheus/archive/def64f3d9ab8e83467a53629acaa3e2fa58c6112.tar.gz",
+        "url": "https://github.com/NixOS/nixpkgs/archive/0aeba64fb26e4defa0842a942757144659c6e29f.tar.gz",
         "url_template": "https://github.com/<owner>/<repo>/archive/<rev>.tar.gz"
     }
 }
