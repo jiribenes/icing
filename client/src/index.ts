@@ -72,14 +72,14 @@ const initUsername = async (): Promise<string> => {
 			}
 
 			const body: string[] = await response.json();
-			debugLog(body);
+			logDebug(body);
 
 			const promptText: string = triedAlready ? "Please use a *unique* name. This name might be already taken. Enter your name:" : "Please enter your name:";
 			triedAlready = true;
 			const promptResult: string | null = prompt(promptText, "Harry Potter");
 			if (promptResult !== null) {
 				if (body.indexOf(promptResult) === -1) {
-					debugLog(promptResult);
+					logDebug(promptResult);
 					return promptResult;
 				}
 			}
