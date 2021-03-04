@@ -7,7 +7,6 @@
 module Icing.API
   ( API
   , server
-  , State
   ) where
 
 import           Control.Concurrent             ( MVar

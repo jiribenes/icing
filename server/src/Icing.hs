@@ -4,13 +4,18 @@ module Icing
   ( app
   ) where
 
-import           Control.Concurrent
-import           Data.Proxy
-import           Database.Selda
+import           Control.Concurrent             ( MVar )
+import           Data.Proxy                     ( Proxy(Proxy) )
+import           Database.Selda                 ( MonadIO
+                                                , MonadMask
+                                                , SeldaT
+                                                )
 import           Database.Selda.SQLite          ( SQLite
                                                 , withSQLite
                                                 )
-import           Icing.API
+import           Icing.API                      ( API
+                                                , server
+                                                )
 import           Icing.State                    ( State
                                                 , makeState
                                                 )
