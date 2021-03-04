@@ -20,10 +20,15 @@ import           Control.Monad.IO.Class         ( MonadIO(..) )
 import           Data.Foldable                  ( for_
                                                 , traverse_
                                                 )
+import qualified Data.Set                      as Set
 import           Data.Text                      ( Text )
 import           Database.Selda                 ( MonadSelda )
 import qualified Network.WebSockets            as WS
-import           Servant.API                    ( type (:>) )
+import           Servant.API                    ( type (:<|>)(..)
+                                                , type (:>)
+                                                , Get
+                                                , JSON
+                                                )
 import           Servant.API.WebSocket          ( WebSocketPending )
 import           Servant.Server                 ( HasServer(..) )
 
@@ -59,11 +64,13 @@ import           Icing.State                    ( State
                                                 , pickRandomColour
                                                 , processActions'
                                                 , removeClient
+                                                , usedNames
                                                 )
 
--- | The whole API is just @/stream@ which serves WebSockets.
+-- | The whole API is a @/stream@ which serves WebSockets.
+-- And an endpoint to get a list of users.
 -- Yes, it's THAT simple!
-type API = "stream" :> WebSocketPending
+type API = "stream" :> WebSocketPending :<|> "users" :> Get '[JSON] [Text]
 
 -- | Broadcasts a 'ServerMessage' to every client
 broadcastMessage :: MonadIO m => State -> ServerMessage -> m ()
@@ -231,7 +238,7 @@ reply serverStateVar name msg = do
 
 -- | Serves a small server given by the type of 'API'.
 server :: MonadSelda m => MVar State -> ServerT API m
-server serverStateVar = streamData
+server serverStateVar = streamData :<|> serveClientList
  where
   streamData :: MonadIO m => WS.PendingConnection -> m ()
   streamData pendingConnection = do
@@ -246,3 +253,8 @@ server serverStateVar = streamData
           $ forever
           $ loop connection serverStateVar name
       Nothing -> pure ()
+
+  serveClientList :: MonadIO m => m [Text]
+  serveClientList = do
+    serverState <- liftIO $ readMVar serverStateVar
+    pure $ Set.toList $ usedNames serverState

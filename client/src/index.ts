@@ -12,6 +12,24 @@ import { Dispatcher, DispatcherEvent } from './dispatcher.ts';
 var disableCallback = false;
 
 const debug = false;
+const addressBase = "localhost:8888";
+const addressSecure = false;
+
+const getEditorAddress = (): string => {
+	if (addressSecure) {
+		return "wss://" + addressBase + "/stream";
+	} else {
+		return "ws://" + addressBase + "/stream";
+	}
+};
+
+const getUsersAddress = (): string => {
+	if (addressSecure) {
+		return "https://" + addressBase + "/users";
+	} else {
+		return "http://" + addressBase + "/users";
+	}
+};
 
 const logDebug = (x: any): void => {
 	if (debug) {
@@ -43,12 +61,31 @@ const makeEditorWritable = (editor) => {
 	editor.updateOptions({ readOnly: false });
 };
 
-const initUsername = () => {
-	let result = null;
+// For some reason, this is the only proper async function in the whole JS code.
+const initUsername = async (): Promise<string> => {
+	let triedAlready: boolean = false;
 	while (true) {
-		result = prompt("Please enter your name", "Harry Potter");
-		if (result !== null) {
-			return result;
+		try {
+			const response = await fetch(getUsersAddress());
+			if (response.status !== 200) {
+				alert("Something went wrong with the server. Oops.");
+			}
+
+			const body: string[] = await response.json();
+			debugLog(body);
+
+			const promptText: string = triedAlready ? "Please use a *unique* name. This name might be already taken. Enter your name:" : "Please enter your name:";
+			triedAlready = true;
+			const promptResult: string | null = prompt(promptText, "Harry Potter");
+			if (promptResult !== null) {
+				if (body.indexOf(promptResult) === -1) {
+					debugLog(promptResult);
+					return promptResult;
+				}
+			}
+		} catch(e) {
+			alert("Could not connect to the server! Sorry :(");
+
 		}
 	}
 };
@@ -438,88 +475,94 @@ const initSharedData = (editor, conn) => {
 };
 
 const editor = initEditor();
-const username = initUsername();
+const main = () => {
+	// thanks i really hate this
+	initUsername().then((username) => {
+		const dispatcher = new Dispatcher();
+		const conn = new Connection(getEditorAddress(), dispatcher, username);
+		const cursorManager = initCursorManager(editor, conn);
+		const selectionManager = initSelectionManager(editor, conn);
+		const contentManager = initSharedData(editor, conn);
 
-const dispatcher = new Dispatcher();
-const conn = new Connection('wss://icing.jiribenes.com/stream', dispatcher, username);
-const cursorManager = initCursorManager(editor, conn);
-const selectionManager = initSelectionManager(editor, conn);
-const contentManager = initSharedData(editor, conn);
+		conn.on('RespondOlleh', (contents) => { 
+			logDebug('RespondOlleh' + JSON.stringify(contents));
 
-conn.on('RespondOlleh', (contents) => { 
-	logDebug('RespondOlleh' + JSON.stringify(contents));
+			conn.revision = contents.ollehRevision;
+			disableCallback = true;
+			editor.getModel().setValue(contents.ollehCurrentText);
+			disableCallback = false;
 
-	conn.revision = contents.ollehRevision;
-	disableCallback = true;
-	editor.getModel().setValue(contents.ollehCurrentText);
-	disableCallback = false;
+			conn.colour = contents.ollehMessage.ollehColour; 
+			conn.username = contents.ollehMessage.ollehName;
 
-	conn.colour = contents.ollehMessage.ollehColour; 
-	conn.username = contents.ollehMessage.ollehName;
+			conn.addClient(new Client(conn.username, conn.colour));
 
-	conn.addClient(new Client(conn.username, conn.colour));
+			conn.sendListUsers();
 
-	conn.sendListUsers();
+			// we've caught up, let's open the edutor up!
+			makeEditorWritable(editor);
+		});
 
-	// we've caught up, let's open the edutor up!
-	makeEditorWritable(editor);
-});
+		conn.on('BroadcastOlleh', (contents) => {
+			logDebug("olleh");
+			logDebug(contents);
+			logDebug("");
 
-conn.on('BroadcastOlleh', (contents) => {
-	logDebug("olleh");
-	logDebug(contents);
-	logDebug("");
+			const name = contents.ollehName;
+			const colour = contents.ollehColour;
+			const client = new Client(name, colour);
+			logDebug("Adding client! " + name);
+			conn.addClient(client);
+		});
 
-	const name = contents.ollehName;
-	const colour = contents.ollehColour;
-	const client = new Client(name, colour);
-	logDebug("Adding client! " + name);
-	conn.addClient(client);
-});
+		conn.on('RespondUsers', (contents) => {
+			conn.users = new Map();
+			logDebug(contents);
+			const allUsers = contents.users;
+			contents.users.forEach((user) => {
+				const client = new Client(user.userName, user.userColour);
+				conn.addClient(client); // this is super inefficient!
+			});
+		});
 
-conn.on('RespondUsers', (contents) => {
-	conn.users = new Map();
-	logDebug(contents);
-	const allUsers = contents.users;
-	contents.users.forEach((user) => {
-		const client = new Client(user.userName, user.userColour);
-		conn.addClient(client); // this is super inefficient!
+		const terminalInput : HTMLInputElement = document.getElementsByClassName("my-terminal-input")[0] as HTMLInputElement;
+		const terminalSubmit : HTMLElement = document.getElementsByClassName("my-terminal-submit")[0] as HTMLElement;
+		const terminalHistory : HTMLInputElement = document.getElementsByClassName("my-terminal-history")[0] as HTMLInputElement;
+
+		// on code submit
+		terminalSubmit.onclick = (event) => {
+			const value = terminalInput.value;
+
+			// we explicitly don't set the value here
+			// so that everyone has the same answers :)
+			conn.sendTerminal(value);
+			return false; // prevents page reload
+		}
+
+		conn.on('BroadcastCompilerOutput', (contents) => {
+			logDebug("compiler output!");
+			logDebug(contents);
+			terminalHistory.value += contents;
+			terminalHistory.scrollTop = terminalHistory.scrollHeight;
+		});
+
+		conn.on('BroadcastTerminal', (contents) => {
+			logDebug("got terminal!");
+			terminalHistory.value += "~> " + contents;
+			terminalHistory.scrollTop = terminalHistory.scrollHeight;
+		});
+
+		conn.on('BroadcastBye', (contents) => { conn.removeClient(contents.byeName); });
+
+		// handle changes
+		conn.on('RespondAck', (contents) => { conn.handleAck(contents); });
+		conn.on('BroadcastChanges', (contents) => { conn.handleOpFromServer(contents); });
+
+
+		logDebug(conn.username);
+		logDebug(conn.colour);
 	});
-});
+};
 
-const terminalInput : HTMLInputElement = document.getElementsByClassName("my-terminal-input")[0] as HTMLInputElement;
-const terminalSubmit : HTMLElement = document.getElementsByClassName("my-terminal-submit")[0] as HTMLElement;
-const terminalHistory : HTMLInputElement = document.getElementsByClassName("my-terminal-history")[0] as HTMLInputElement;
-
-// on code submit
-terminalSubmit.onclick = (event) => {
-	const value = terminalInput.value;
-
-	// we explicitly don't set the value here
-	// so that everyone has the same answers :)
-	conn.sendTerminal(value);
-	return false; // prevents page reload
-}
-
-conn.on('BroadcastCompilerOutput', (contents) => {
-	logDebug("compiler output!");
-	logDebug(contents);
-	terminalHistory.value += contents;
-	terminalHistory.scrollTop = terminalHistory.scrollHeight;
-});
-
-conn.on('BroadcastTerminal', (contents) => {
-	logDebug("got terminal!");
-	terminalHistory.value += "~> " + contents;
-	terminalHistory.scrollTop = terminalHistory.scrollHeight;
-});
-
-conn.on('BroadcastBye', (contents) => { conn.removeClient(contents.byeName); });
-
-// handle changes
-conn.on('RespondAck', (contents) => { conn.handleAck(contents); });
-conn.on('BroadcastChanges', (contents) => { conn.handleOpFromServer(contents); });
-
-
-logDebug(conn.username);
-logDebug(conn.colour);
+// call the entry point
+main();
