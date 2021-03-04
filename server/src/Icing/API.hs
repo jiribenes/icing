@@ -56,9 +56,9 @@ import           Icing.State                    ( State
                                                 , getAllClientsExcept
                                                 , getCurrentRevision
                                                 , getCurrentText
+                                                , pickRandomColour
                                                 , processActions'
                                                 , removeClient
-                                                , tryPickColour
                                                 )
 
 -- | The whole API is just @/stream@ which serves WebSockets.
@@ -111,40 +111,34 @@ initializeConnection connection serverStateVar = do
       pure Nothing
     Right xs -> case xs of
       ClientHello (HelloMessage wantedName) -> do
-        state       <- liftIO $ readMVar serverStateVar
-        maybeColour <- tryPickColour state
-        case maybeColour of
-          Just colour -> do
-            let client = Client wantedName colour connection
-            liftIO $ print client
+        state  <- liftIO $ readMVar serverStateVar
+        colour <- pickRandomColour state
 
-            let givenName = createValidName state wantedName
+        let client = Client wantedName colour connection
+        liftIO $ print client
 
-            -- response
-            let olleh     = OllehMessage givenName colour
-            let completeOlleh = OllehUserMessage olleh
-                                                 (getCurrentText state)
-                                                 (getCurrentRevision state)
+        let givenName = createValidName state wantedName
 
-            -- send the respond to the user and add them to clients
-            sendMessage connection (RespondOlleh completeOlleh)
-            liftIO $ modifyMVar_ serverStateVar $ \st ->
-              pure $ addClient st client
+        -- response
+        let olleh     = OllehMessage givenName colour
+        let completeOlleh = OllehUserMessage olleh
+                                             (getCurrentText state)
+                                             (getCurrentRevision state)
 
-            -- send the "user connected" message to all clients
-            newState <- liftIO $ readMVar serverStateVar
-            broadcastMessageExcept newState givenName $ BroadcastOlleh olleh
-            -- liftIO $ putStrLn $ "New state: " <> show newState
+        -- send the respond to the user and add them to clients
+        sendMessage connection (RespondOlleh completeOlleh)
+        liftIO $ modifyMVar_ serverStateVar $ \st -> pure $ addClient st client
 
-            -- send current text so that the user can catch up!
-            let currentText = getCurrentText newState
-            sendMessage connection (SendCurrentText currentText)
+        -- send the "user connected" message to all clients
+        newState <- liftIO $ readMVar serverStateVar
+        broadcastMessageExcept newState givenName $ BroadcastOlleh olleh
+        -- liftIO $ putStrLn $ "New state: " <> show newState
 
-            pure $ Just givenName
-          Nothing -> do
-            liftIO $ WS.sendClose connection ("Not enough colours!" :: Text)
-            liftIO $ putStrLn "Closing because: not enough colours!"
-            pure Nothing
+        -- send current text so that the user can catch up!
+        let currentText = getCurrentText newState
+        sendMessage connection (SendCurrentText currentText)
+
+        pure $ Just givenName
       _ -> do
         liftIO $ WS.sendClose connection ("Expected hello!" :: Text)
         liftIO $ putStrLn "Closing because: expected hello!"

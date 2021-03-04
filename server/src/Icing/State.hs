@@ -125,13 +125,17 @@ freeColours :: State -> Set Colour
 freeColours state = Set.difference darkPallete $ usedColours state
 
 -- | Tries to pick a free 'Colour' from the pallete
-tryPickColour :: MonadIO m => State -> m (Maybe Colour)
-tryPickColour state
-  | null free = pure Nothing
-  | otherwise = do
-    randomIndex <- liftIO $ getStdRandom (randomR (0, length free - 1))
-    pure $ Just (free !! randomIndex)
-  where free = Set.toList $ freeColours state
+--
+-- If there are no more colours left, picks a random colour that has already been used
+pickRandomColour :: MonadIO m => State -> m Colour
+pickRandomColour state
+  | null (freeColours state) = pickRandomFromSet darkPallete
+  | otherwise                = pickRandomFromSet $ freeColours state
+ where
+  pickRandomFromSet set = liftIO $ do
+    randomIndex <- getStdRandom (randomR (0, Set.size set - 1))
+    pure $ Set.toList set !! randomIndex
+
 
 -------------------------
 -- conversion utilities
