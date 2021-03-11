@@ -12,8 +12,8 @@ import { Dispatcher, DispatcherEvent } from './dispatcher.ts';
 var disableCallback = false;
 
 const debug = false;
-const addressBase = "localhost:8888";
-const addressSecure = false;
+const addressBase = "icing.jiribenes.com";
+const addressSecure = true;
 
 const getEditorAddress = (): string => {
 	if (addressSecure) {
