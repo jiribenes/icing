@@ -4,9 +4,13 @@ I _sync_ your code to your students and vice versa.
 
 Written in acceptable-quality _Haskell_ and horrible-quality _JavaScript_.
 
-PR's welcome!
+PRs welcome!
 
-No refunds.
+_No refunds._
+
+## Screenshot
+
+![screenshot showing the editor in action](https://user-images.githubusercontent.com/11269173/111480859-b46ba480-8732-11eb-86ca-17ad4fa08870.png)
 
 ## Installing
 
