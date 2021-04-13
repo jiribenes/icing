@@ -206,10 +206,11 @@ reply serverStateVar name msg = do
         liftIO $ modifyMVar serverStateVar $ \st ->
           processActions' st clientRev actions
 
-      let currentText = getCurrentText serverState
+      newServerState <- liftIO $ readMVar serverStateVar
+      let currentText = getCurrentText newServerState
       setHaskellText currentText
 
-      result <- processHaskell serverState
+      result <- processHaskell newServerState
       pure
         [ ( BroadcastChanges (ChangeMessage newRevision sendMeToClients)
           , ExceptThis name
@@ -239,7 +240,7 @@ reply serverStateVar name msg = do
       setHaskellText currentText
 
       result <- processHaskell serverState
-      queryResult <- processHaskellQuery serverState query
+      queryResult <- liftIO $ modifyMVar serverStateVar (flip processHaskellQuery query)
 
       let queryMessage = CompilerQueryMessage query queryResult
       pure [(BroadcastCompilerOutput result, Broadcast), (BroadcastCompilerQuery queryMessage, Broadcast)]

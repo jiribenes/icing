@@ -6,8 +6,11 @@ module Icing.Haskell
   , HaskellState
   , initHaskellState
   , stopHaskellState
+  , reloadHaskellState
+  , interruptHaskell
   , reloadHaskell
   , queryHaskell
+  , QueryResult(..)
   , Ghcid.Load(..)
   , Ghcid.Severity(..)
   ) where
@@ -15,9 +18,10 @@ module Icing.Haskell
 import           Control.Monad.IO.Class         ( MonadIO(..) )
 import           Data.Text                      ( Text )
 import qualified Data.Text                     as T
-import qualified Data.Text.Internal.Search     as T
 import qualified Data.Text.IO                  as T
+import qualified Data.Text.Internal.Search     as T
 import qualified Language.Haskell.Ghcid        as Ghcid
+import           System.Timeout                 ( timeout )
 
 data HaskellState = HaskellState
   { haskellStateGhci :: Ghcid.Ghci
@@ -36,6 +40,14 @@ initHaskellState = do
 stopHaskellState :: MonadIO m => HaskellState -> m ()
 stopHaskellState = liftIO . Ghcid.stopGhci . haskellStateGhci
 
+reloadHaskellState :: MonadIO m => HaskellState -> m HaskellState
+reloadHaskellState state = do
+  stopHaskellState state
+  initHaskellState
+
+interruptHaskell :: MonadIO m => HaskellState -> m ()
+interruptHaskell = liftIO . Ghcid.interrupt . haskellStateGhci
+
 -- | Represents the path to the file into which the document is pasted.
 haskellFile :: FilePath
 haskellFile = "editor-input.hs"
@@ -50,18 +62,31 @@ setHaskellText = liftIO . T.writeFile haskellFile
 reloadHaskell :: MonadIO m => HaskellState -> m [Ghcid.Load]
 reloadHaskell = liftIO . Ghcid.reload . haskellStateGhci
 
-queryHaskell :: MonadIO m => HaskellState -> Text -> m (Maybe Text)
-queryHaskell state query 
-  | isQueryBad query = pure Nothing
-  | otherwise = liftIO . fmap (Just . concatStrings) . Ghcid.exec (haskellStateGhci state) . T.unpack $ query
+data QueryResult = BadQuery | ReloadQuery | TimeoutQuery | SuccessfulQuery Text
+
+queryHaskell :: MonadIO m => HaskellState -> Text -> m QueryResult
+queryHaskell state query
+  | isQueryBad query = pure BadQuery
+  | isQueryReload query = pure ReloadQuery
+  | otherwise = do
+    result <- liftIO $ timeout (5 * oneSecond) (process query)
+    pure $ maybe TimeoutQuery SuccessfulQuery result
  where
+  process = fmap concatStrings . Ghcid.exec (haskellStateGhci state) . T.unpack
+
+  oneSecond :: Int
+  oneSecond = 10^6
+
   concatStrings :: [String] -> Text
   concatStrings = T.unlines . fmap T.pack
 
   isQueryBad :: Text -> Bool
   isQueryBad q = any (flip isIn q) [":!", ":q", ":set"]
 
+  isQueryReload :: Text -> Bool
+  isQueryReload q = ":reload" `isIn` q
+
   isIn :: Text -> Text -> Bool
   isIn needle haystack = case T.indices needle haystack of
-                           (_matchIndex:_) -> True
-                           _ -> False
+    (_matchIndex : _) -> True
+    _                 -> False

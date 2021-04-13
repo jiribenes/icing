@@ -12,7 +12,7 @@ import { Dispatcher, DispatcherEvent } from './dispatcher.ts';
 // this is horrifying
 var disableCallback = false;
 
-const debug = false;
+const debug = true;
 const addressBase = "localhost:8888";
 const addressSecure = false;
 
@@ -592,7 +592,7 @@ const main = () => {
 				const query = "> " + contents['compilerQueryMessage'];
 				const response = "" + contents['compilerQueryResponse'];
 
-				addTerminalQuery(query + "\n" + response);
+				addTerminalQuery(query + "\n" + response + "\n");
 				redrawTerminal();
 			});
 

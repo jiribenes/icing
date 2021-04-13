@@ -175,12 +175,21 @@ processHaskell state = do
   stringsToText :: [String] -> Text
   stringsToText = T.unlines . fmap T.pack
 
-processHaskellQuery :: MonadIO m => State -> Text -> m Text
+processHaskellQuery :: MonadIO m => State -> Text -> m (State, Text)
 processHaskellQuery state q = do
   result <- queryHaskell (stateHaskell state) q
   case result of
-    Just someResult -> pure someResult
-    Nothing -> pure "INVALID QUERY. STOP."
+    BadQuery -> pure (state, "Invalid query. Please don't.")
+    TimeoutQuery -> do -- TODO: use interrupt properly?
+      -- interruptHaskell $ stateHaskell state
+      newHaskellState <- reloadHaskellState $ stateHaskell state
+      let newState = state { stateHaskell = newHaskellState }
+      pure (newState, "Timeout after five seconds. Be careful when using laziness!")
+    ReloadQuery -> do
+      newHaskellState <- reloadHaskellState $ stateHaskell state
+      let newState = state { stateHaskell = newHaskellState }
+      pure (newState, "Ghci reloaded, you're welcome :)")
+    SuccessfulQuery someResult -> pure (state, someResult)
 
 -------------------------
 -- conversion utilities
