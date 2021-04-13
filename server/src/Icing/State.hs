@@ -17,6 +17,7 @@ import           System.Random                  ( Random(..)
                                                 )
 
 import           Icing.Client
+import           Icing.Haskell
 import           Icing.Message
 import           Icing.Operation
 
@@ -24,8 +25,11 @@ import           Icing.Operation
 data State = State
   { stateClients  :: [Client]
   , stateDocument :: DocumentState
+  , stateHaskell  :: HaskellState
   }
-  deriving stock Show
+
+instance Show State where
+  show st = unlines [show $ stateClients st, show $ stateDocument st]
 
 -- | Creates a new state.
 -- 
@@ -34,7 +38,8 @@ data State = State
 makeState :: MonadIO m => m (MVar State)
 makeState = do
   let initialDocumentState = DocumentState 1 "-- write here" []
-  liftIO $ newMVar (State [] initialDocumentState)
+  haskellState <- initHaskellState
+  liftIO $ newMVar (State [] initialDocumentState haskellState)
 
 addClient :: State -> Client -> State
 addClient st client = st { stateClients = client : oldClients }
@@ -136,6 +141,46 @@ pickRandomColour state
     randomIndex <- getStdRandom (randomR (0, Set.size set - 1))
     pure $ Set.toList set !! randomIndex
 
+processHaskell :: MonadIO m => State -> m [CompilerOutputMessage]
+processHaskell state = do
+  let haskellState = stateHaskell state
+  loads <- reloadHaskell haskellState
+  pure $ loadToMessage <$> loads
+ where
+  loadToMessage :: Load -> CompilerOutputMessage
+  loadToMessage (Loading _ _) =
+    CompilerOutputMessage "Loaded!" 2 Nothing Nothing
+  loadToMessage (LoadConfig _) =
+    CompilerOutputMessage "Loaded config!" 2 Nothing Nothing
+  loadToMessage (Eval eval) =
+    CompilerOutputMessage (T.pack $ show eval) 3 Nothing Nothing
+  loadToMessage (Message severity _ pos posEnd msgs)
+    | pos == (0, 0) = CompilerOutputMessage (stringsToText msgs)
+                                            (severityToKind severity)
+                                            Nothing
+                                            Nothing
+    | pos == posEnd = CompilerOutputMessage (stringsToText msgs)
+                                            (severityToKind severity)
+                                            (Just pos)
+                                            Nothing
+    | otherwise = CompilerOutputMessage (stringsToText msgs)
+                                        (severityToKind severity)
+                                        (Just pos)
+                                        (Just posEnd)
+
+  severityToKind :: Severity -> Int
+  severityToKind Error   = 0
+  severityToKind Warning = 1
+
+  stringsToText :: [String] -> Text
+  stringsToText = T.unlines . fmap T.pack
+
+processHaskellQuery :: MonadIO m => State -> Text -> m Text
+processHaskellQuery state q = do
+  result <- queryHaskell (stateHaskell state) q
+  case result of
+    Just someResult -> pure someResult
+    Nothing -> pure "INVALID QUERY. STOP."
 
 -------------------------
 -- conversion utilities

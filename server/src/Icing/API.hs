@@ -33,12 +33,7 @@ import           Servant.API.WebSocket          ( WebSocketPending )
 import           Servant.Server                 ( HasServer(..) )
 
 import           Icing.Client                   ( Client(..) )
--- import           Icing.Prolog                   ( runPrologWithQuery
---                                                 , setPrologText
---                                                 )
-import           Icing.Haskell                  ( runHaskellWithQuery
-                                                , setHaskellText
-                                                )
+import           Icing.Haskell                  ( setHaskellText )
 import           Icing.Message                  ( ByeMessage(..)
                                                 , ChangeMessage(..)
                                                 , ClearSelectionMessage(..)
@@ -53,6 +48,7 @@ import           Icing.Message                  ( ByeMessage(..)
                                                 , SetCursorMessage(..)
                                                 , SetSelectionMessage(..)
                                                 , UsersMessage(..)
+                                                , CompilerQueryMessage(..)
                                                 , clientToUser
                                                 , parseMessage
                                                 , sendMessage
@@ -66,6 +62,8 @@ import           Icing.State                    ( State
                                                 , getCurrentText
                                                 , pickRandomColour
                                                 , processActions'
+                                                , processHaskell
+                                                , processHaskellQuery
                                                 , removeClient
                                                 , usedNames
                                                 )
@@ -78,13 +76,14 @@ type API = "stream" :> WebSocketPending :<|> "users" :> Get '[JSON] [Text]
 -- | Broadcasts a 'ServerMessage' to every client
 broadcastMessage :: MonadIO m => State -> ServerMessage -> m ()
 broadcastMessage clients message = liftIO $ do
+  putStrLn $ "broadcasting message: " <> show message
   for_ (getAllClients clients)
     $ \client -> sendMessage (clientConnection client) message
 
 -- | Broadcasts a 'ServerMessage' to every client except the given one
 broadcastMessageExcept :: MonadIO m => State -> Text -> ServerMessage -> m ()
 broadcastMessageExcept clients exceptName message = liftIO $ do
-  putStrLn $ "broadcasting message: " <> show message
+  putStrLn $ "broadcasting message to all except one: " <> show message
   for_ (getAllClientsExcept clients exceptName)
     $ \client -> sendMessage (clientConnection client) message
 
@@ -206,11 +205,17 @@ reply serverStateVar name msg = do
       (sendMeToClients, newRevision) <-
         liftIO $ modifyMVar serverStateVar $ \st ->
           processActions' st clientRev actions
+
+      let currentText = getCurrentText serverState
+      setHaskellText currentText
+
+      result <- processHaskell serverState
       pure
         [ ( BroadcastChanges (ChangeMessage newRevision sendMeToClients)
           , ExceptThis name
           )
         , (RespondAck newRevision, OnlyThis name)
+        , (BroadcastCompilerOutput result, Broadcast)
         ]
     ClientSetCursor (ClientSetCursorMessage offset) -> pure
       [(BroadcastSetCursor (SetCursorMessage offset name), ExceptThis name)]
@@ -228,13 +233,16 @@ reply serverStateVar name msg = do
     ClientListUsers -> do
       let allUsers = clientToUser <$> getAllClients serverState
       pure [(RespondUsers (UsersMessage allUsers), OnlyThis name)]
-    ClientTerminal queryText -> do
+    ClientTerminal query -> do
+      -- just to be sure!
       let currentText = getCurrentText serverState
       setHaskellText currentText
 
-      result <- runHaskellWithQuery queryText
-      pure $ zip [BroadcastTerminal queryText, BroadcastCompilerOutput result]
-                 [Broadcast, Broadcast]
+      result <- processHaskell serverState
+      queryResult <- processHaskellQuery serverState query
+
+      let queryMessage = CompilerQueryMessage query queryResult
+      pure [(BroadcastCompilerOutput result, Broadcast), (BroadcastCompilerQuery queryMessage, Broadcast)]
     _ -> do
       liftIO $ print msg
       pure []

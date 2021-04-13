@@ -3,6 +3,91 @@ import { loadWASM } from 'onigasm' // peer dependency of 'monaco-textmate'
 import { Registry } from 'monaco-textmate' // peer dependency
 import { wireTmGrammars } from './monaco-editor-textmate.ts'
 
+
+export type CompilerOutput = {
+    compilerOutputKind : number;
+    compilerOutputMessage : string;
+    compilerOutputPosStart? : [number, number];
+    compilerOutputPosEnd? : [number, number];
+};
+
+export function prettyCompilerOutput(compilerOutput : CompilerOutput): string {
+  switch (compilerOutput.compilerOutputKind) {
+    case 0: { // error
+      const firstLine : string = "[ERROR] at " + prettyPosition(compilerOutput.compilerOutputPosStart);
+      return firstLine + "\n" + compilerOutput.compilerOutputMessage + "\n";
+    }
+    case 1: { // warning
+      const firstLine : string = "[WARNING] at " + prettyPosition(compilerOutput.compilerOutputPosStart);
+      return firstLine + "\n" + compilerOutput.compilerOutputMessage + "\n";
+    }
+    case 2: { // loading
+      return "[LOADED] :)\n"
+    }
+    case 3: { // eval
+      const firstLine : string = "[EVAL] at " + prettyPosition(compilerOutput.compilerOutputPosStart);
+      return firstLine + "\n" + compilerOutput.compilerOutputMessage + "\n";
+    }
+    default: {
+      return "[OOPS] :(\n";
+    }
+  }
+}
+
+function getStartPosition(compilerOutput : CompilerOutput) : [number, number] {
+  if (compilerOutput.compilerOutputPosStart === null) {
+    return [1, 1];
+  }
+  return compilerOutput.compilerOutputPosStart;
+}
+
+function getEndPosition(compilerOutput : CompilerOutput) : [number, number] {
+  if (compilerOutput.compilerOutputPosEnd === null) {
+    return getStartPosition(compilerOutput);
+  }
+  return compilerOutput.compilerOutputPosEnd;
+}
+
+export function compilerOutputToModelMarker(compilerOutput : CompilerOutput) : monaco.editor.IMarkerData | null {
+  const [startLine, startColumn] = getStartPosition(compilerOutput);
+  const [endLine, endColumn] = getEndPosition(compilerOutput);
+
+  switch (compilerOutput.compilerOutputKind) {
+    case 0: { //error
+      const result : monaco.editor.IMarkerData = {
+          severity: monaco.MarkerSeverity.Error,
+          startLineNumber: startLine,
+          startColumn: startColumn,
+          endLineNumber: endLine,
+          endColumn: endColumn,
+          message: compilerOutput.compilerOutputMessage,
+      };
+      return result;
+    }
+    case 1: { // warning
+      const result : monaco.editor.IMarkerData = {
+          severity: monaco.MarkerSeverity.Warning,
+          startLineNumber: startLine,
+          startColumn: startColumn,
+          endLineNumber: endLine,
+          endColumn: endColumn,
+          message: compilerOutput.compilerOutputMessage,
+      };
+      return result;
+    }
+  }
+  return null;
+}
+
+function prettyPosition(maybePosition? : [number, number]) : string {
+  if (maybePosition === null) {
+    return "<no position>";
+  }
+
+  const result : string = maybePosition[0] + ":" + maybePosition[1];
+  return result;
+}
+
 export async function initHaskell(editor) {
     await loadWASM(`node_modules/onigasm/lib/onigasm.wasm`) // See https://www.npmjs.com/package/onigasm#light-it-up
 

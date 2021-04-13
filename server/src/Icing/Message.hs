@@ -114,6 +114,22 @@ data ClearSelectionMessage = ClearSelectionMessage
   deriving stock (Show, Eq, Ord, Generic)
   deriving anyclass (FromJSON, ToJSON)
 
+data CompilerOutputMessage = CompilerOutputMessage
+  { compilerOutputMessage :: Text
+  , compilerOutputKind :: Int -- TODO: 0 is error, 1 is warning, 2 is loading, 3 is eval
+  , compilerOutputPosStart :: Maybe (Int, Int)
+  , compilerOutputPosEnd :: Maybe (Int, Int)
+  }
+  deriving stock (Show, Eq, Ord, Generic)
+  deriving anyclass (FromJSON, ToJSON)
+
+data CompilerQueryMessage = CompilerQueryMessage
+  { compilerQueryMessage :: Text
+  , compilerQueryResponse :: Text
+  }
+  deriving stock (Show, Eq, Ord, Generic)
+  deriving anyclass (FromJSON, ToJSON)
+
 data ByeMessage = ByeMessage
   { byeName :: Text
   }
@@ -160,7 +176,8 @@ data ServerMessage = RespondOlleh OllehUserMessage
                    | BroadcastSetCursor SetCursorMessage
                    | BroadcastSetSelection SetSelectionMessage
                    | BroadcastClearSelection ClearSelectionMessage
-                   | BroadcastCompilerOutput Text
+                   | BroadcastCompilerOutput [CompilerOutputMessage]
+                   | BroadcastCompilerQuery CompilerQueryMessage
                    | BroadcastTerminal Text
                    | BroadcastBye ByeMessage
   deriving stock (Show, Eq, Ord, Generic)

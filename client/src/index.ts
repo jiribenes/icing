@@ -4,7 +4,7 @@ import { Terminal } from 'xterm';
 import './index.css';
 import './xterm.css';
 // import { initProlog } from './prolog.ts';
-import { initHaskell } from './haskell.ts';
+import { initHaskell, CompilerOutput, prettyCompilerOutput, compilerOutputToModelMarker } from './haskell.ts';
 import { InsertAction, DeleteAction, Action, serializeAction, deserializeAction } from './action.ts';
 import { Operation, StateSynchronized, StateWaiting, StateWaitingWithBuffer, State, ApplyLocalResult, applyUserOperation, ApplyServerResult, applyServerOperation, ServerAckResult, serverAck } from './operation.ts';
 import { Dispatcher, DispatcherEvent } from './dispatcher.ts';
@@ -475,8 +475,28 @@ const initSharedData = (editor, conn) => {
 			}
 		});
 	});
-	// conn.on('BroadcastInsert', (contents) => { contentManager.insert(contents.insertIndex, contents.insertValue); });
-	// conn.on('BroadcastDelete', (contents) => { contentManager.delete(contents.deleteIndex, contents.deleteLength); });
+};
+
+const terminalHistory : HTMLInputElement = document.getElementsByClassName("my-terminal-history")[0] as HTMLInputElement;
+let terminalQueries : string[] = new Array();
+let lastCompilerOutputs : CompilerOutput[] = new Array();
+
+const addTerminalQuery = (query: string): void => {
+	if (terminalQueries.length >= 5) {
+		terminalQueries.shift();
+	}	
+	terminalQueries.push(query);
+};
+
+const redrawTerminal = (): void => {
+	terminalHistory.value = "";
+	lastCompilerOutputs.forEach((out) => {
+		terminalHistory.value += prettyCompilerOutput(out) + "\n";
+	});
+	terminalQueries.forEach((terminalQuery) => {
+		terminalHistory.value += terminalQuery + "\n";
+	});
+	terminalHistory.scrollTop = terminalHistory.scrollHeight;
 };
 
 const main = () => {
@@ -532,7 +552,6 @@ const main = () => {
 
 			const terminalInput : HTMLInputElement = document.getElementsByClassName("my-terminal-input")[0] as HTMLInputElement;
 			const terminalSubmit : HTMLElement = document.getElementsByClassName("my-terminal-submit")[0] as HTMLElement;
-			const terminalHistory : HTMLInputElement = document.getElementsByClassName("my-terminal-history")[0] as HTMLInputElement;
 
 			// on code submit
 			terminalSubmit.onclick = (event) => {
@@ -546,15 +565,35 @@ const main = () => {
 
 			conn.on('BroadcastCompilerOutput', (contents) => {
 				logDebug("compiler output!");
-				logDebug(contents);
-				terminalHistory.value += contents;
-				terminalHistory.scrollTop = terminalHistory.scrollHeight;
+				terminalHistory.value = "";
+				const markers : monaco.editor.IMarkerData[] = new Array();
+				const compilerOutputs = new Array();
+				contents.forEach((msg) => {
+					const parsedMsg : CompilerOutput = msg as CompilerOutput;
+					logDebug(parsedMsg);
+					compilerOutputs.push(parsedMsg);
+
+					const maybeMarker = compilerOutputToModelMarker(parsedMsg);
+					if (maybeMarker !== null) {
+						markers.push(maybeMarker);
+					}
+
+				});
+
+				// put the markers into the document
+				monaco.editor.setModelMarkers(editor.getModel(), "Hoskell", markers);
+
+				lastCompilerOutputs = compilerOutputs;
+				redrawTerminal();
 			});
 
-			conn.on('BroadcastTerminal', (contents) => {
-				logDebug("got terminal!");
-				terminalHistory.value += "~> " + contents;
-				terminalHistory.scrollTop = terminalHistory.scrollHeight;
+			conn.on('BroadcastCompilerQuery', (contents) => {
+				logDebug("got query!");
+				const query = "> " + contents['compilerQueryMessage'];
+				const response = "" + contents['compilerQueryResponse'];
+
+				addTerminalQuery(query + "\n" + response);
+				redrawTerminal();
 			});
 
 			conn.on('BroadcastBye', (contents) => { conn.removeClient(contents.byeName); });
