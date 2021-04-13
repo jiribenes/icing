@@ -33,7 +33,7 @@ data State = State
 -- Otherwise bad thingsTM happen.
 makeState :: MonadIO m => m (MVar State)
 makeState = do
-  let initialDocumentState = DocumentState 1 "% write here" []
+  let initialDocumentState = DocumentState 1 "-- write here" []
   liftIO $ newMVar (State [] initialDocumentState)
 
 addClient :: State -> Client -> State

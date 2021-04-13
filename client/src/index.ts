@@ -3,7 +3,8 @@ import {RemoteCursorManager, RemoteSelectionManager, EditorContentManager} from 
 import { Terminal } from 'xterm';
 import './index.css';
 import './xterm.css';
-import { initProlog } from './prolog.ts';
+// import { initProlog } from './prolog.ts';
+import { initHaskell } from './haskell.ts';
 import { InsertAction, DeleteAction, Action, serializeAction, deserializeAction } from './action.ts';
 import { Operation, StateSynchronized, StateWaiting, StateWaitingWithBuffer, State, ApplyLocalResult, applyUserOperation, ApplyServerResult, applyServerOperation, ServerAckResult, serverAck } from './operation.ts';
 import { Dispatcher, DispatcherEvent } from './dispatcher.ts';
@@ -12,8 +13,8 @@ import { Dispatcher, DispatcherEvent } from './dispatcher.ts';
 var disableCallback = false;
 
 const debug = false;
-const addressBase = "icing.jiribenes.com";
-const addressSecure = true;
+const addressBase = "localhost:8888";
+const addressSecure = false;
 
 const getEditorAddress = (): string => {
 	if (addressSecure) {
@@ -38,21 +39,25 @@ const logDebug = (x: any): void => {
 };
 
 
-const initEditor = () => {
-	initProlog();
-
+const initEditor = async () => {
 	const editor = monaco.editor.create(document.getElementById("monaco-editor"), {
-		value: '% write here',
-		language: 'swi-prolog',
+		value: '-- write here',
+		language: 'hoskell',
 		autoIndent: "full",
 		theme: "vs-dark",
 		automaticLayout: true,
-		readOnly: true
+		readOnly: true,
+	    minimap: {
+			enabled: false
+		},
 	});
 
 	editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KEY_Z, () => {
 		// lol, no Ctrl+Z for you!
 	});
+
+	await initHaskell(editor);
+
 
 	return editor;
 };
@@ -474,93 +479,94 @@ const initSharedData = (editor, conn) => {
 	// conn.on('BroadcastDelete', (contents) => { contentManager.delete(contents.deleteIndex, contents.deleteLength); });
 };
 
-const editor = initEditor();
 const main = () => {
-	// thanks i really hate this
-	initUsername().then((username) => {
-		const dispatcher = new Dispatcher();
-		const conn = new Connection(getEditorAddress(), dispatcher, username);
-		const cursorManager = initCursorManager(editor, conn);
-		const selectionManager = initSelectionManager(editor, conn);
-		const contentManager = initSharedData(editor, conn);
+	initEditor().then((editor) => {
+		// thanks i really hate this
+		initUsername().then((username) => {
+			const dispatcher = new Dispatcher();
+			const conn = new Connection(getEditorAddress(), dispatcher, username);
+			const cursorManager = initCursorManager(editor, conn);
+			const selectionManager = initSelectionManager(editor, conn);
+			const contentManager = initSharedData(editor, conn);
 
-		conn.on('RespondOlleh', (contents) => { 
-			logDebug('RespondOlleh' + JSON.stringify(contents));
+			conn.on('RespondOlleh', (contents) => { 
+				logDebug('RespondOlleh' + JSON.stringify(contents));
 
-			conn.revision = contents.ollehRevision;
-			disableCallback = true;
-			editor.getModel().setValue(contents.ollehCurrentText);
-			disableCallback = false;
+				conn.revision = contents.ollehRevision;
+				disableCallback = true;
+				editor.getModel().setValue(contents.ollehCurrentText);
+				disableCallback = false;
 
-			conn.colour = contents.ollehMessage.ollehColour; 
-			conn.username = contents.ollehMessage.ollehName;
+				conn.colour = contents.ollehMessage.ollehColour; 
+				conn.username = contents.ollehMessage.ollehName;
 
-			conn.addClient(new Client(conn.username, conn.colour));
+				conn.addClient(new Client(conn.username, conn.colour));
 
-			conn.sendListUsers();
+				conn.sendListUsers();
 
-			// we've caught up, let's open the edutor up!
-			makeEditorWritable(editor);
-		});
-
-		conn.on('BroadcastOlleh', (contents) => {
-			logDebug("olleh");
-			logDebug(contents);
-			logDebug("");
-
-			const name = contents.ollehName;
-			const colour = contents.ollehColour;
-			const client = new Client(name, colour);
-			logDebug("Adding client! " + name);
-			conn.addClient(client);
-		});
-
-		conn.on('RespondUsers', (contents) => {
-			conn.users = new Map();
-			logDebug(contents);
-			const allUsers = contents.users;
-			contents.users.forEach((user) => {
-				const client = new Client(user.userName, user.userColour);
-				conn.addClient(client); // this is super inefficient!
+				// we've caught up, let's open the edutor up!
+				makeEditorWritable(editor);
 			});
+
+			conn.on('BroadcastOlleh', (contents) => {
+				logDebug("olleh");
+				logDebug(contents);
+				logDebug("");
+
+				const name = contents.ollehName;
+				const colour = contents.ollehColour;
+				const client = new Client(name, colour);
+				logDebug("Adding client! " + name);
+				conn.addClient(client);
+			});
+
+			conn.on('RespondUsers', (contents) => {
+				conn.users = new Map();
+				logDebug(contents);
+				const allUsers = contents.users;
+				contents.users.forEach((user) => {
+					const client = new Client(user.userName, user.userColour);
+					conn.addClient(client); // this is super inefficient!
+				});
+			});
+
+			const terminalInput : HTMLInputElement = document.getElementsByClassName("my-terminal-input")[0] as HTMLInputElement;
+			const terminalSubmit : HTMLElement = document.getElementsByClassName("my-terminal-submit")[0] as HTMLElement;
+			const terminalHistory : HTMLInputElement = document.getElementsByClassName("my-terminal-history")[0] as HTMLInputElement;
+
+			// on code submit
+			terminalSubmit.onclick = (event) => {
+				const value = terminalInput.value;
+
+				// we explicitly don't set the value here
+				// so that everyone has the same answers :)
+				conn.sendTerminal(value);
+				return false; // prevents page reload
+			}
+
+			conn.on('BroadcastCompilerOutput', (contents) => {
+				logDebug("compiler output!");
+				logDebug(contents);
+				terminalHistory.value += contents;
+				terminalHistory.scrollTop = terminalHistory.scrollHeight;
+			});
+
+			conn.on('BroadcastTerminal', (contents) => {
+				logDebug("got terminal!");
+				terminalHistory.value += "~> " + contents;
+				terminalHistory.scrollTop = terminalHistory.scrollHeight;
+			});
+
+			conn.on('BroadcastBye', (contents) => { conn.removeClient(contents.byeName); });
+
+			// handle changes
+			conn.on('RespondAck', (contents) => { conn.handleAck(contents); });
+			conn.on('BroadcastChanges', (contents) => { conn.handleOpFromServer(contents); });
+
+
+			logDebug(conn.username);
+			logDebug(conn.colour);
 		});
-
-		const terminalInput : HTMLInputElement = document.getElementsByClassName("my-terminal-input")[0] as HTMLInputElement;
-		const terminalSubmit : HTMLElement = document.getElementsByClassName("my-terminal-submit")[0] as HTMLElement;
-		const terminalHistory : HTMLInputElement = document.getElementsByClassName("my-terminal-history")[0] as HTMLInputElement;
-
-		// on code submit
-		terminalSubmit.onclick = (event) => {
-			const value = terminalInput.value;
-
-			// we explicitly don't set the value here
-			// so that everyone has the same answers :)
-			conn.sendTerminal(value);
-			return false; // prevents page reload
-		}
-
-		conn.on('BroadcastCompilerOutput', (contents) => {
-			logDebug("compiler output!");
-			logDebug(contents);
-			terminalHistory.value += contents;
-			terminalHistory.scrollTop = terminalHistory.scrollHeight;
-		});
-
-		conn.on('BroadcastTerminal', (contents) => {
-			logDebug("got terminal!");
-			terminalHistory.value += "~> " + contents;
-			terminalHistory.scrollTop = terminalHistory.scrollHeight;
-		});
-
-		conn.on('BroadcastBye', (contents) => { conn.removeClient(contents.byeName); });
-
-		// handle changes
-		conn.on('RespondAck', (contents) => { conn.handleAck(contents); });
-		conn.on('BroadcastChanges', (contents) => { conn.handleOpFromServer(contents); });
-
-
-		logDebug(conn.username);
-		logDebug(conn.colour);
 	});
 };
 

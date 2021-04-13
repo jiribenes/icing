@@ -38,5 +38,9 @@ You can also use Cabal. If you're reading this, you probably know how to operate
 * Uses [WebSockets](https://developer.mozilla.org/en-US/docs/Web/API/WebSockets_API) with JSON contents to quickly transfer changes between the server and its users.
 * Uses operational transformation theory[1] to achieve conflict resolution.
 
+## Credits
+
+* Uses a grammar from [JustusAdam](https://github.com/JustusAdam/language-haskell) to facilitate code highlighting for Haskell
+
 ### References
 * [1]: SUN, Chengzheng, et al. Achieving convergence, causality preservation, and intention preservation in real-time cooperative editing systems. _ACM Transactions on Computer-Human Interaction (TOCHI)_, 1998, 5.1: 63-108. Available from: https://www.cs.cityu.edu.hk/~jia/research/reduce98.pdf

@@ -1,6 +1,7 @@
 const path = require('path');
 const HtmlWebPackPlugin = require('html-webpack-plugin');
 const MonacoWebpackPlugin = require('monaco-editor-webpack-plugin');
+const webpack = require('webpack');
 
 module.exports = {
 	mode: 'development',
@@ -34,14 +35,30 @@ module.exports = {
 			{
 				test: /\.ttf$/,
 				use: ['file-loader']
+			},
+			{
+				test: /\.json$/,
+				use: ['file-loader']
+			},
+			{
+				test: /\.wasm$/,
+				use: ['file-loader'],
+				type: 'javascript/auto'
 			}
 		]
 	},
 	plugins: [
-		new MonacoWebpackPlugin(),
+		new MonacoWebpackPlugin({
+			languages: [],
+		}),
 		new HtmlWebPackPlugin({
 			title: 'Monaco Editor Sample',
 			template: 'src/index.html'
-		})
+		}),
+		// fix "process is not defined" error:
+		// (do "npm install process" before running the build)
+		new webpack.ProvidePlugin({
+		  process: 'process/browser',
+		}),
 	]
 };

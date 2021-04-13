@@ -33,6 +33,12 @@ import           Servant.API.WebSocket          ( WebSocketPending )
 import           Servant.Server                 ( HasServer(..) )
 
 import           Icing.Client                   ( Client(..) )
+-- import           Icing.Prolog                   ( runPrologWithQuery
+--                                                 , setPrologText
+--                                                 )
+import           Icing.Haskell                  ( runHaskellWithQuery
+                                                , setHaskellText
+                                                )
 import           Icing.Message                  ( ByeMessage(..)
                                                 , ChangeMessage(..)
                                                 , ClearSelectionMessage(..)
@@ -50,9 +56,6 @@ import           Icing.Message                  ( ByeMessage(..)
                                                 , clientToUser
                                                 , parseMessage
                                                 , sendMessage
-                                                )
-import           Icing.Prolog                   ( runPrologWithQuery
-                                                , setPrologText
                                                 )
 import           Icing.State                    ( State
                                                 , addClient
@@ -227,9 +230,9 @@ reply serverStateVar name msg = do
       pure [(RespondUsers (UsersMessage allUsers), OnlyThis name)]
     ClientTerminal queryText -> do
       let currentText = getCurrentText serverState
-      setPrologText currentText
+      setHaskellText currentText
 
-      result <- runPrologWithQuery queryText
+      result <- runHaskellWithQuery queryText
       pure $ zip [BroadcastTerminal queryText, BroadcastCompilerOutput result]
                  [Broadcast, Broadcast]
     _ -> do

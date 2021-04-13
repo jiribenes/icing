@@ -21,5 +21,11 @@
 		"webpack-dev-server": "^3.11.2",
 		"xterm": "^4.10.0",
 		"yargs": "^16.2.0"
+	},
+	"dependencies": {
+		"monaco-textmate": "^3.0.1",
+		"monaco-vscode-textmate-theme-converter": "^0.1.1",
+		"onigasm": "^2.2.5",
+		"process": "^0.11.10"
 	}
 }
