@@ -12,7 +12,7 @@ import { Dispatcher, DispatcherEvent } from './dispatcher.ts';
 // this is horrifying
 var disableCallback = false;
 
-const debug = true;
+const debug = false;
 const addressBase = "localhost:8888";
 const addressSecure = false;
 
