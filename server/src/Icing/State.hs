@@ -158,6 +158,10 @@ processHaskell :: MonadIO m => State -> m [CompilerOutputMessage]
 processHaskell state = do
   let inChan       = stateHaskellInChan state
   let haskellState = stateHaskell state
+  let currentText = getCurrentText state
+
+  sendSaveFile inChan haskellState currentText
+
   runWithMVar (sendReload inChan haskellState)
     $ \loads -> pure $ loadToMessage <$> loads
  where

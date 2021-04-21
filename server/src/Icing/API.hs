@@ -33,7 +33,6 @@ import           Servant.API.WebSocket          ( WebSocketPending )
 import           Servant.Server                 ( HasServer(..) )
 
 import           Icing.Client                   ( Client(..) )
-import           Icing.Haskell                  ( setHaskellText )
 import           Icing.Message                  ( ByeMessage(..)
                                                 , ChangeMessage(..)
                                                 , ClearSelectionMessage(..)
@@ -207,8 +206,6 @@ reply serverStateVar name msg = do
           processActions' st clientRev actions
 
       newServerState <- liftIO $ readMVar serverStateVar
-      let currentText = getCurrentText newServerState
-      setHaskellText currentText
 
       result <- processHaskell newServerState
       pure
@@ -235,10 +232,6 @@ reply serverStateVar name msg = do
       let allUsers = clientToUser <$> getAllClients serverState
       pure [(RespondUsers (UsersMessage allUsers), OnlyThis name)]
     ClientTerminal query -> do
-      -- just to be sure!
-      let currentText = getCurrentText serverState
-      setHaskellText currentText
-
       result <- processHaskell serverState
       queryResult <- liftIO $ modifyMVar serverStateVar (flip processHaskellQuery query)
 

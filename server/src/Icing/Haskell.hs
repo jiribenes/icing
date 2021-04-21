@@ -3,7 +3,6 @@
 
 module Icing.Haskell
   ( haskellFile
-  , setHaskellText
   , HaskellState
   , initHaskellState
   , stopHaskellState
@@ -18,6 +17,7 @@ module Icing.Haskell
   , LoopMsg
   , sendReload
   , sendQuery
+  , sendSaveFile
   , makeHaskellChan
   , haskellLoop
   ) where
@@ -36,7 +36,8 @@ data HaskellState = HaskellState
   { haskellStateGhci :: Ghcid.Ghci
   }
 
-data LoopMsg = Reload ([Ghcid.Load] -> IO ())
+data LoopMsg = SaveFile Text
+             | Reload ([Ghcid.Load] -> IO ())
              | Query Text (QueryResult -> IO ())
 
 type FullLoopMsg = (LoopMsg, HaskellState)
@@ -60,6 +61,15 @@ sendQuery
 sendQuery inChan haskellState q k =
   liftIO $ writeChan inChan (Query q k, haskellState)
 
+sendSaveFile
+  :: MonadIO m
+  => InChan FullLoopMsg
+  -> HaskellState
+  -> Text
+  -> m ()
+sendSaveFile inChan haskellState fileContents =
+  liftIO $ writeChan inChan (SaveFile fileContents, haskellState)
+
 makeHaskellChan :: MonadIO m => m (InChan FullLoopMsg, OutChan FullLoopMsg)
 makeHaskellChan = liftIO newChan
 
@@ -75,7 +85,7 @@ haskellLoop outChan = forever go
       Query q k -> do
         result <- queryHaskell haskellState q
         k result
-
+      SaveFile contents -> T.writeFile haskellFile contents
 
 initHaskellState :: MonadIO m => m HaskellState
 initHaskellState = do
@@ -101,12 +111,6 @@ interruptHaskell = liftIO . Ghcid.interrupt . haskellStateGhci
 -- | Represents the path to the file into which the document is pasted.
 haskellFile :: FilePath
 haskellFile = "editor-input.hs"
-
--- | Writes given text into 'haskellFile'.
---
--- Overwrites original contents.
-setHaskellText :: MonadIO m => Text -> m ()
-setHaskellText = liftIO . T.writeFile haskellFile
 
 -- | Reload a Haskell instance
 reloadHaskell :: MonadIO m => HaskellState -> m [Ghcid.Load]
