@@ -1,10 +1,16 @@
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 
 module Icing.State where
 
+import           Control.Concurrent             ( forkIO )
+import           Control.Concurrent.Chan.Unagi  ( InChan )
 import           Control.Concurrent.MVar        ( MVar
+                                                , newEmptyMVar
                                                 , newMVar
+                                                , putMVar
+                                                , readMVar
                                                 )
 import           Control.Monad.IO.Class         ( MonadIO(..) )
 import           Data.List                      ( find )
@@ -23,23 +29,30 @@ import           Icing.Operation
 
 -- | Represents the server state
 data State = State
-  { stateClients  :: [Client]
-  , stateDocument :: DocumentState
-  , stateHaskell  :: HaskellState
+  { stateClients       :: [Client]
+  , stateDocument      :: DocumentState
+  , stateHaskell       :: HaskellState
+  , stateHaskellInChan :: InChan FullLoopMsg
   }
 
 instance Show State where
   show st = unlines [show $ stateClients st, show $ stateDocument st]
 
 -- | Creates a new state.
+--
+-- Also starts a Haskell loop
 -- 
 -- Beware, the strings absolutely need to be synchronized with the frontend strings.
 -- Otherwise bad thingsTM happen.
 makeState :: MonadIO m => m (MVar State)
 makeState = do
   let initialDocumentState = DocumentState 1 "-- write here" []
-  haskellState <- initHaskellState
-  liftIO $ newMVar (State [] initialDocumentState haskellState)
+  haskellState      <- initHaskellState
+  (inChan, outChan) <- makeHaskellChan
+
+  _                 <- liftIO $ forkIO $ haskellLoop outChan
+
+  liftIO $ newMVar (State [] initialDocumentState haskellState inChan)
 
 addClient :: State -> Client -> State
 addClient st client = st { stateClients = client : oldClients }
@@ -143,9 +156,10 @@ pickRandomColour state
 
 processHaskell :: MonadIO m => State -> m [CompilerOutputMessage]
 processHaskell state = do
+  let inChan       = stateHaskellInChan state
   let haskellState = stateHaskell state
-  loads <- reloadHaskell haskellState
-  pure $ loadToMessage <$> loads
+  runWithMVar (sendReload inChan haskellState)
+    $ \loads -> pure $ loadToMessage <$> loads
  where
   loadToMessage :: Load -> CompilerOutputMessage
   loadToMessage (Loading _ _) =
@@ -177,19 +191,35 @@ processHaskell state = do
 
 processHaskellQuery :: MonadIO m => State -> Text -> m (State, Text)
 processHaskellQuery state q = do
-  result <- queryHaskell (stateHaskell state) q
-  case result of
-    BadQuery -> pure (state, "Invalid query. Please don't.")
+  let inChan       = stateHaskellInChan state
+  let haskellState = stateHaskell state
+  runWithMVar (sendQuery inChan haskellState q) callback
+ where
+  callback :: QueryResult -> IO (State, Text)
+  callback queryResult = case queryResult of
+    BadQuery     -> pure (state, "Invalid query. Please don't.")
     TimeoutQuery -> do -- TODO: use interrupt properly?
       -- interruptHaskell $ stateHaskell state
       newHaskellState <- reloadHaskellState $ stateHaskell state
       let newState = state { stateHaskell = newHaskellState }
-      pure (newState, "Timeout after five seconds. Be careful when using laziness!")
+      pure
+        (newState, "Timeout after two seconds. Be careful when using laziness!")
     ReloadQuery -> do
       newHaskellState <- reloadHaskellState $ stateHaskell state
       let newState = state { stateHaskell = newHaskellState }
       pure (newState, "Ghci reloaded, you're welcome :)")
     SuccessfulQuery someResult -> pure (state, someResult)
+
+-- | Takes an action requiring a unit callback and a callback returning a value
+-- and pipes the result outward using a MVar (probably an overkill)
+runWithMVar :: MonadIO m => ((t -> IO ()) -> m a) -> (t -> IO b) -> m b
+runWithMVar action callback = do
+  resultVar <- liftIO newEmptyMVar
+  _         <- action $ \result -> do
+    result' <- callback result
+    putMVar resultVar result'
+  liftIO $ readMVar resultVar
+
 
 -------------------------
 -- conversion utilities

@@ -45,7 +45,7 @@ common common-options
 
 library
   import:              common-options
-  build-depends:       entropy >= 0.4 && < 0.5, process, directory, base16-bytestring, base58-bytestring, optparse-applicative, memory, cryptonite >= 0.25 && < 1.0, email-validate, mime-mail, filepath, exceptions, http-types, http2, cookie, either, websockets, posix-pty, ghcid
+  build-depends:       entropy >= 0.4 && < 0.5, process, directory, base16-bytestring, base58-bytestring, optparse-applicative, memory, cryptonite >= 0.25 && < 1.0, email-validate, mime-mail, filepath, exceptions, http-types, http2, cookie, either, websockets, posix-pty, ghcid, unagi-chan
   hs-source-dirs:      src
   exposed-modules:     Icing, Icing.API, Icing.Message, Icing.Client, Icing.State, Icing.Prolog, Icing.Haskell, Icing.Operation
 
